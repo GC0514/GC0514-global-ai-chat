@@ -1,49 +1,67 @@
-import { Message, Chat, AiIntensity } from './types';
+import { Message, Chat, AiIntensity, Country } from './types';
 import { COUNTRIES } from './data';
 
+const getRelationship = (responder: Country, instigatorId: string): 'ally' | 'rival' | 'neutral' => {
+    if (!responder.persona) return 'neutral';
+    if (responder.persona.relationship_matrix.allies.includes(instigatorId)) return 'ally';
+    if (responder.persona.relationship_matrix.rivals.includes(instigatorId)) return 'rival';
+    return 'neutral';
+};
+
 export const generatePublicResponse = (triggerMessage: Message, chat: Chat, intensity: AiIntensity): Message[] => {
+    const instigator = COUNTRIES[triggerMessage.senderId];
+    if (!instigator) return [];
+
     const intensityMap = {
-        simple: { responders: 0.1, complexity: 0.1 },
-        medium: { responders: 0.3, complexity: 0.4 },
-        high: { responders: 0.6, complexity: 0.7 },
-        intense: { responders: 0.9, complexity: 1.0 },
+        simple: 0.1,
+        medium: 0.3,
+        high: 0.6,
+        intense: 0.9,
     };
 
-    const settings = intensityMap[intensity];
-    const maxResponders = Math.max(1, Math.floor(chat.participants.length * settings.responders));
-    const numResponders = Math.floor(Math.random() * maxResponders) + 1;
+    const potentialResponders = chat.participants
+        .filter(pId => pId !== triggerMessage.senderId && COUNTRIES[pId] && Math.random() < intensityMap[intensity])
+        .map(pId => COUNTRIES[pId]);
 
-    const respondingCountries = chat.participants
-        .filter(pId => pId !== triggerMessage.senderId && COUNTRIES[pId])
-        .sort(() => 0.5 - Math.random())
-        .slice(0, numResponders);
+    return potentialResponders.map((country, index) => {
+        const relationship = getRelationship(country, triggerMessage.senderId);
+        let statement = '';
+        let assessment = '';
 
-    return respondingCountries.map((countryId, index) => {
-        const country = COUNTRIES[countryId];
-        const isOpportunity = Math.random() > 0.5;
-        let publicStatement = '';
-        let innerThought = `(Internal assessment: This is a ${isOpportunity ? 'potential opportunity' : 'clear threat'} to our interests.)`;
-
-        switch (intensity) {
-            case 'simple':
-                publicStatement = `On behalf of ${country.name}, we are listening to all perspectives and appreciate the dialogue.`;
-                innerThought = `(Internal assessment: Acknowledging the topic.)`
+        switch (relationship) {
+            case 'ally':
+                assessment = `(Internal Assessment: An opportunity to reinforce our alliance with ${instigator.name}.)`;
+                statement = `On behalf of ${country.name}, we stand in solidarity with our partner, ${instigator.name}. Their perspective is valuable and deserves serious consideration by this council. We support this dialogue.`;
                 break;
-            case 'medium':
-                publicStatement = `On behalf of ${country.name}, we believe that international cooperation is the most effective path forward to address this issue.`;
+            case 'rival':
+                assessment = `(Internal Assessment: We must challenge ${instigator.name}'s narrative.)`;
+                statement = `For ${country.name}, the statement from ${instigator.name} raises more questions than answers. We must scrutinize these claims carefully and insist on a transparent process that respects international norms, not just one nation's agenda.`;
                 break;
-            case 'high':
-                publicStatement = `On behalf of ${country.name}, while we value diplomatic solutions, our nation's core interests are paramount. Any resolution must respect our sovereignty and strategic position.`;
-                break;
-            case 'intense':
-                innerThought = `(Internal assessment: This is a critical situation! We must assert our position forcefully.)`
-                publicStatement = `For ${country.name}, this is not merely a topic for debate; it is a fundamental challenge to the global order. We urge all nations to recognize the gravity of the situation. Inaction is not an option, and our stance is resolute and UNYIELDING.`;
+            case 'neutral':
+            default:
+                assessment = `(Internal Assessment: A neutral stance is wisest. Observe and gather information.)`;
+                statement = `${country.name} acknowledges the points raised. We are listening to all parties and encourage continued constructive dialogue to find a peaceful and mutually acceptable resolution.`;
                 break;
         }
+        
+        if (intensity === 'high' || intensity === 'intense') {
+            if(relationship === 'rival') {
+                statement += " We will not stand by and allow unilateral actions to undermine global stability."
+            }
+            if(relationship === 'ally') {
+                statement += " We are confident that our shared values will lead to a positive outcome."
+            }
+        }
+        if(intensity === 'intense' && relationship === 'rival'){
+            statement = `The rhetoric from ${instigator.name} is unacceptable and a direct threat to the established order! ${country.name} categorically rejects this position and calls on all responsible nations to condemn this reckless posturing.`;
+        }
+
 
         return {
-            id: Date.now() + index, chatId: chat.id, senderId: country.id,
-            text: `${innerThought}\n\n${publicStatement}`,
+            id: Date.now() + index,
+            chatId: chat.id,
+            senderId: country.id,
+            text: `${assessment}\n\n${statement}`,
             timestamp: Date.now() + (index + 1) * 1500,
         };
     });
