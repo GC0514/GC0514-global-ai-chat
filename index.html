@@ -256,11 +256,43 @@
 
         .message { display: flex; gap: 1rem; max-width: 80%; }
         .message.observer { align-self: flex-end; flex-direction: row-reverse; }
-        .message.news-flash { align-self: center; background-color: var(--background-hover); padding: 0.5rem 1rem; border-radius: 8px; max-width: 90%; border-left: 3px solid var(--accent-secondary); }
+        .message.news-flash {
+            align-self: center;
+            background-color: var(--background-hover);
+            padding: 1rem 1.5rem;
+            border-radius: var(--border-radius-subtle);
+            width: 100%;
+            max-width: 90%;
+            border-left: 4px solid var(--accent-secondary);
+            text-align: left;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .news-flash-content {
+            width: 100%;
+        }
+        .news-flash-content h4 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent-secondary);
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .news-flash-content p {
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+        .news-flash-icon {
+            font-size: 1.5rem;
+            line-height: 1;
+        }
+
         .message-avatar { font-size: 2rem; flex-shrink: 0; line-height: 1; }
         .message-content { display: flex; flex-direction: column; gap: 0.25rem; }
         .message-sender { font-weight: 600; font-size: 0.9rem; }
-        .message.observer .message-sender { text-align: right; }
+        .message.observer .message-sender { text-align: right; color: white; opacity: 0.8; }
         .message-bubble { background-color: var(--background-panel-opaque); padding: 0.75rem 1rem; border-radius: 12px; line-height: 1.5; white-space: pre-wrap; }
         .message.observer .message-bubble { background-color: var(--accent-primary); color: white; }
 
@@ -329,6 +361,7 @@
 
         .modal-actions { display: flex; justify-content: space-between; gap: 0.75rem; margin-top: 1.5rem; }
         .modal-button { padding: 0.75rem 1.5rem; border-radius: var(--border-radius-subtle); border: none; font-weight: 600; font-size: 1rem; cursor: pointer; transition: filter 0.2s; }
+        .modal-button:disabled { background-color: var(--background-hover); cursor: not-allowed; opacity: 0.5; }
         .modal-button.primary { background-color: var(--accent-primary); color: white; }
         .modal-button.primary:hover { filter: brightness(1.1); }
         .modal-button.secondary { background-color: var(--background-hover); color: var(--text-primary); }
@@ -358,6 +391,18 @@
         .segmented-control button { background-color: transparent; border: none; color: var(--text-secondary); padding: 0.5rem 0.75rem; cursor: pointer; flex-grow: 1; font-size: 0.8rem; border-left: 1px solid var(--border-color); }
         .segmented-control button:first-child { border-left: none; }
         .segmented-control button.active { background-color: var(--accent-primary); color: white; }
+        
+        /* --- News Event Modal --- */
+        .news-modal .modal-content { max-width: 600px; }
+        .news-modal .modal-name { text-align: center; }
+        .news-list { list-style: none; padding: 0; margin: 1.5rem 0; max-height: 40vh; overflow-y: auto; text-align: left; }
+        .news-item { padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-subtle); margin-bottom: 0.75rem; cursor: pointer; transition: all var(--transition-fast); }
+        .news-item:hover { background-color: var(--background-hover); border-color: var(--accent-primary); }
+        .news-item.selected { background-color: var(--background-active); border-color: var(--accent-primary); }
+        .news-item h4 { margin-bottom: 0.5rem; font-size: 1.1rem; }
+        .news-item p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; }
+        .news-item .source { font-size: 0.8rem; font-style: italic; margin-top: 0.5rem; color: var(--text-secondary); opacity: 0.8; }
+        .loading-news { display: flex; justify-content: center; align-items: center; min-height: 200px; color: var(--text-secondary); }
 
     </style>
 <script type="importmap">

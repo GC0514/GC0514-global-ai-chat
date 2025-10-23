@@ -1,4 +1,4 @@
-import { Country, Chat, Message } from './types';
+import { Country, Chat, Message, NewsItem } from './types';
 import { USA_PERSONA, CHN_PERSONA, RUS_PERSONA, GBR_PERSONA, FRA_PERSONA, DEU_PERSONA, JPN_PERSONA } from './personas';
 
 export const COUNTRIES: Record<string, Country> = {
@@ -180,6 +180,33 @@ export const INITIAL_CHATS: Chat[] = [
     { id: 'au', name: '🌍 African Union', type: 'group', participants: ['observer', ...AU_MEMBERS] },
     { id: 'arab_league', name: '🕊️ Arab League', type: 'group', participants: ['observer', ...ARAB_LEAGUE_MEMBERS] },
     { id: 'gcc', name: '⭐ Gulf Cooperation Council', type: 'group', participants: ['observer', ...GCC_MEMBERS] },
+];
+
+export const MOCK_NEWS_ITEMS: NewsItem[] = [
+    {
+        id: 'news_1',
+        title: 'Breakthrough in Fusion Energy Hailed as "New Dawn"',
+        snippet: 'Scientists at a joint international lab have announced a sustained fusion reaction, producing net positive energy for the first time. The development could revolutionize the energy sector and climate change efforts.',
+        source: 'Global Science Times'
+    },
+    {
+        id: 'news_2',
+        title: 'Central Banks Announce Coordinated Digital Currency Initiative',
+        snippet: 'A consortium of the world\'s largest central banks is launching a pilot program for a cross-border digital currency, aiming to streamline international trade and challenge the dominance of existing systems.',
+        source: 'Financial World News'
+    },
+    {
+        id: 'news_3',
+        title: 'Asteroid Mining Treaty Negotiations Begin at UN',
+        snippet: 'Delegates from over 50 nations have gathered to draft a legal framework for the exploitation of resources from asteroids and other celestial bodies, a topic of growing economic and strategic importance.',
+        source: 'Interplanetary Chronicle'
+    },
+    {
+        id: 'news_4',
+        title: 'Global Supply Chains Face Disruption from New Shipping Regulations',
+        snippet: 'Strict new environmental regulations for maritime shipping are set to take effect, with experts predicting significant short-term disruptions and increased costs for international trade as carriers adapt.',
+        source: 'Trade Winds Daily'
+    }
 ];
 
 export const INITIAL_MESSAGES: Message[] = [

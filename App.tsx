@@ -1,11 +1,9 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Chat, Message, AiIntensity, Country } from './types';
-import { INITIAL_CHATS, INITIAL_MESSAGES, COUNTRIES, TRANSLATIONS } from './data';
+import { Chat, Message, AiIntensity, Country, NewsItem } from './types';
+import { INITIAL_CHATS, INITIAL_MESSAGES, COUNTRIES, TRANSLATIONS, MOCK_NEWS_ITEMS } from './data';
 import { generatePublicResponse, generatePrivateResponse } from './ai';
 import { playNotificationSound } from './utils';
-import { Header, NavColumn, ListViewColumn, ChatWindow, CountryProfileModal, SettingsModal } from './components';
+import { Header, NavColumn, ListViewColumn, ChatWindow, CountryProfileModal, SettingsModal, NewsEventModal } from './components';
 
 export const App = () => {
     const [chats, setChats] = useState<Chat[]>(INITIAL_CHATS);
@@ -14,6 +12,7 @@ export const App = () => {
     const [modalCountry, setModalCountry] = useState<Country | null>(null);
     const [activeView, setActiveView] = useState<'chats' | 'directory'>('chats');
     const [isSettingsOpen, setSettingsOpen] = useState(false);
+    const [isNewsModalOpen, setNewsModalOpen] = useState(false);
     const [theme, setTheme] = useState<'dark' | 'light'>('dark');
     const [language, setLanguage] = useState<'en' | 'zh'>('en');
     const [aiIntensity, setAiIntensity] = useState<AiIntensity>('medium');
@@ -91,6 +90,19 @@ export const App = () => {
         }
     };
 
+    const handlePostNewsEvent = (newsItem: NewsItem) => {
+        const newsMessage: Message = {
+            id: messageIdCounter.current++,
+            chatId: 'global', // Events always post to the global chat
+            senderId: 'news_flash',
+            title: newsItem.title,
+            text: newsItem.snippet,
+            timestamp: Date.now(),
+        };
+        addMessage(newsMessage);
+        setNewsModalOpen(false);
+    };
+
     const handleStartPrivateChat = (countryId: string) => {
         const privateChatId = `private_${countryId}`;
         const existingChat = chats.find(c => c.id === privateChatId);
@@ -156,6 +168,7 @@ export const App = () => {
                 chat={activeChat}
                 messages={activeChat ? messages.filter(m => m.chatId === activeChatId) : []}
                 onSendMessage={handleSendMessage}
+                onOpenNewsModal={() => setNewsModalOpen(true)}
             />
             {modalCountry && (
                 <CountryProfileModal
@@ -175,6 +188,12 @@ export const App = () => {
                     intensity={aiIntensity}
                     onIntensityChange={setAiIntensity}
                     t={t}
+                />
+            )}
+            {isNewsModalOpen && (
+                <NewsEventModal
+                    onClose={() => setNewsModalOpen(false)}
+                    onPostEvent={handlePostNewsEvent}
                 />
             )}
         </>

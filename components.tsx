@@ -1,6 +1,6 @@
-import React, { useState, useRef, useLayoutEffect } from 'react';
-import { Country, Message, Chat, AiIntensity } from './types';
-import { COUNTRIES } from './data';
+import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
+import { Country, Message, Chat, AiIntensity, NewsItem } from './types';
+import { COUNTRIES, MOCK_NEWS_ITEMS } from './data';
 
 // --- CHILD COMPONENTS ---
 
@@ -138,7 +138,7 @@ export const ListViewColumn = ({ activeView, chats, activeChatId, unreadCounts, 
     );
 }
 
-export const ChatWindow = ({ chat, messages, onSendMessage }) => {
+export const ChatWindow = ({ chat, messages, onSendMessage, onOpenNewsModal }) => {
     const messageListRef = useRef<HTMLDivElement>(null);
     const [inputValue, setInputValue] = useState('');
     const [isEmojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -185,6 +185,9 @@ export const ChatWindow = ({ chat, messages, onSendMessage }) => {
                 )}
                 <div className="input-toolbar">
                     <button className="toolbar-button" onClick={() => setEmojiPickerOpen(o => !o)}>😊</button>
+                    {chat.id === 'global' && (
+                        <button className="toolbar-button" onClick={onOpenNewsModal} title="Select News Event">⚡️</button>
+                    )}
                 </div>
                 <form className="message-input-form" onSubmit={handleSubmit}>
                     <textarea
@@ -204,11 +207,22 @@ export const ChatWindow = ({ chat, messages, onSendMessage }) => {
 };
 
 export const MessageComponent = ({ message }: { message: Message }) => {
+    if (message.senderId === 'news_flash') {
+        return (
+            <div className="message news-flash">
+                <div className="news-flash-content">
+                    <h4><span className="news-flash-icon">📰</span> {message.title || 'News Flash'}</h4>
+                    <p>{message.text}</p>
+                </div>
+            </div>
+        );
+    }
+
     const sender = message.senderId === 'observer' ? { name: 'Observer', avatar: '👤' } : COUNTRIES[message.senderId];
     if (!sender) return null;
 
     return (
-        <div className={`message ${message.senderId}`}>
+        <div className={`message ${message.senderId === 'observer' ? 'observer' : ''}`}>
             <div className="message-avatar">{sender.avatar}</div>
             <div className="message-content">
                 <div className="message-sender">{sender.name}</div>
@@ -288,6 +302,68 @@ export const SettingsModal = ({ onClose, theme, onThemeChange, language, onLangu
                 </div>
                 <div className="modal-actions" style={{ marginTop: '1rem', justifyContent: 'center' }}>
                     <button className="modal-button secondary" onClick={onClose}>{t.close}</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export const NewsEventModal = ({ onClose, onPostEvent }) => {
+    const [isLoading, setIsLoading] = useState(true);
+    const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
+    const [selectedNewsId, setSelectedNewsId] = useState<string | null>(null);
+
+    useEffect(() => {
+        // Simulate fetching news from an API
+        const timer = setTimeout(() => {
+            setNewsItems(MOCK_NEWS_ITEMS);
+            setIsLoading(false);
+        }, 1500);
+
+        return () => clearTimeout(timer);
+    }, []);
+
+    const handlePost = () => {
+        if (selectedNewsId) {
+            const selectedNews = newsItems.find(item => item.id === selectedNewsId);
+            if (selectedNews) {
+                onPostEvent(selectedNews);
+            }
+        }
+    };
+
+    return (
+        <div className="modal-overlay news-modal" onClick={onClose}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <h3 className="modal-name">Select a News Event</h3>
+                {isLoading ? (
+                    <div className="loading-news">
+                        <p>Fetching hot topics...</p>
+                    </div>
+                ) : (
+                    <ul className="news-list">
+                        {newsItems.map(item => (
+                            <li
+                                key={item.id}
+                                className={`news-item ${selectedNewsId === item.id ? 'selected' : ''}`}
+                                onClick={() => setSelectedNewsId(item.id)}
+                            >
+                                <h4>{item.title}</h4>
+                                <p>{item.snippet}</p>
+                                <div className="source">Source: {item.source}</div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+                <div className="modal-actions" style={{ justifyContent: 'flex-end' }}>
+                     <button className="modal-button secondary" onClick={onClose}>Cancel</button>
+                    <button 
+                        className="modal-button primary" 
+                        onClick={handlePost} 
+                        disabled={!selectedNewsId || isLoading}
+                    >
+                        Post Event
+                    </button>
                 </div>
             </div>
         </div>

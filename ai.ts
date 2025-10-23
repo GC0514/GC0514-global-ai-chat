@@ -1,4 +1,4 @@
-import { Message, Chat, AiIntensity, Country } from './types';
+import { Message, Chat, AiIntensity, Country, Persona } from './types';
 import { COUNTRIES } from './data';
 
 const getRelationship = (responder: Country, instigatorId: string): 'ally' | 'rival' | 'neutral' => {
@@ -7,6 +7,42 @@ const getRelationship = (responder: Country, instigatorId: string): 'ally' | 'ri
     if (responder.persona.relationship_matrix.rivals.includes(instigatorId)) return 'rival';
     return 'neutral';
 };
+
+const generateStatement = (responder: Country, instigator: Country, relationship: 'ally' | 'rival' | 'neutral', intensity: AiIntensity): { assessment: string, statement: string } => {
+    const persona = responder.persona as Persona;
+    let assessment = '';
+    let statement = '';
+
+    const intensityMultiplier = { simple: 0, medium: 1, high: 2, intense: 3 };
+    const level = intensityMultiplier[intensity];
+
+    switch (relationship) {
+        case 'ally':
+            assessment = `(Internal Assessment: An opportunity to reinforce our alliance with ${instigator.name}. This aligns with our interest in ${persona.core_interests.security}.)`;
+            statement = `On behalf of ${responder.name}, we stand in solidarity with our partner, ${instigator.name}. ${persona.behavioral_patterns.towards_allies}`;
+            if (level > 1) statement += ` We fully endorse their position and will offer our support.`;
+            break;
+        case 'rival':
+            assessment = `(Internal Assessment: We must challenge ${instigator.name}'s narrative. This action potentially undermines our interest in ${persona.core_interests.economic} and ${persona.core_interests.security}.)`;
+            statement = `The statement from ${instigator.name} is viewed with concern by ${responder.name}. ${persona.behavioral_patterns.towards_rivals}`;
+            if (level > 1) statement += ` We urge other nations to consider the implications of such rhetoric.`;
+            if (level > 2) statement = `The baseless assertions from ${instigator.name} are a direct threat to stability! ${responder.name} unequivocally condemns this and will consider all necessary measures to protect its interests.`;
+            break;
+        case 'neutral':
+        default:
+            assessment = `(Internal Assessment: A neutral stance is wisest. We will observe how this affects our interest in ${persona.core_interests.economic}.)`;
+            statement = `${responder.name} acknowledges the points raised. We are listening to all parties and encourage continued constructive dialogue to find a peaceful resolution.`;
+            break;
+    }
+
+    // Add persona-specific rhetorical flair
+    if (persona.communication_style.rhetoric.length > 0) {
+        statement += ` As our history teaches us, ${persona.communication_style.rhetoric[Math.floor(Math.random() * persona.communication_style.rhetoric.length)]}.`;
+    }
+
+    return { assessment, statement };
+};
+
 
 export const generatePublicResponse = (triggerMessage: Message, chat: Chat, intensity: AiIntensity): Message[] => {
     const instigator = COUNTRIES[triggerMessage.senderId];
@@ -20,43 +56,28 @@ export const generatePublicResponse = (triggerMessage: Message, chat: Chat, inte
     };
 
     const potentialResponders = chat.participants
-        .filter(pId => pId !== triggerMessage.senderId && COUNTRIES[pId] && Math.random() < intensityMap[intensity])
+        .filter(pId => {
+            const country = COUNTRIES[pId];
+            // AI countries with a defined persona are more likely to respond
+            const baseChance = country && country.persona ? intensityMap[intensity] * 1.5 : intensityMap[intensity];
+            return pId !== triggerMessage.senderId && country && Math.random() < Math.min(baseChance, 1.0);
+        })
         .map(pId => COUNTRIES[pId]);
 
     return potentialResponders.map((country, index) => {
+        if (!country.persona) { // Generic response for countries without a detailed persona
+             return {
+                id: Date.now() + index,
+                chatId: chat.id,
+                senderId: country.id,
+                text: `${country.name} acknowledges the ongoing discussion. We are monitoring the situation closely.`,
+                timestamp: Date.now() + (index + 1) * 1500,
+            };
+        }
+
         const relationship = getRelationship(country, triggerMessage.senderId);
-        let statement = '';
-        let assessment = '';
-
-        switch (relationship) {
-            case 'ally':
-                assessment = `(Internal Assessment: An opportunity to reinforce our alliance with ${instigator.name}.)`;
-                statement = `On behalf of ${country.name}, we stand in solidarity with our partner, ${instigator.name}. Their perspective is valuable and deserves serious consideration by this council. We support this dialogue.`;
-                break;
-            case 'rival':
-                assessment = `(Internal Assessment: We must challenge ${instigator.name}'s narrative.)`;
-                statement = `For ${country.name}, the statement from ${instigator.name} raises more questions than answers. We must scrutinize these claims carefully and insist on a transparent process that respects international norms, not just one nation's agenda.`;
-                break;
-            case 'neutral':
-            default:
-                assessment = `(Internal Assessment: A neutral stance is wisest. Observe and gather information.)`;
-                statement = `${country.name} acknowledges the points raised. We are listening to all parties and encourage continued constructive dialogue to find a peaceful and mutually acceptable resolution.`;
-                break;
-        }
-        
-        if (intensity === 'high' || intensity === 'intense') {
-            if(relationship === 'rival') {
-                statement += " We will not stand by and allow unilateral actions to undermine global stability."
-            }
-            if(relationship === 'ally') {
-                statement += " We are confident that our shared values will lead to a positive outcome."
-            }
-        }
-        if(intensity === 'intense' && relationship === 'rival'){
-            statement = `The rhetoric from ${instigator.name} is unacceptable and a direct threat to the established order! ${country.name} categorically rejects this position and calls on all responsible nations to condemn this reckless posturing.`;
-        }
-
-
+        const { assessment, statement } = generateStatement(country, instigator, relationship, intensity);
+       
         return {
             id: Date.now() + index,
             chatId: chat.id,
