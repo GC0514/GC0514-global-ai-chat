@@ -18,7 +18,6 @@ export interface Persona {
         in_crisis: string;
     };
     historical_context: string[];
-    // Fix: Add optional 'relationship_matrix' to Persona type to resolve errors in persona definition files.
     relationship_matrix?: {
         allies: string[];
         rivals: string[];
@@ -34,8 +33,8 @@ export interface Country {
     persona?: Persona;
     relationships: {
         [key: string]: {
-            strategicAlignment: number; // Represents the deep, slow-moving relationship (e.g., -10 for rivals, 10 for allies)
-            currentStanding: number;    // Represents the current, faster-moving "goodwill" (e.g., -10 for hostile, 10 for friendly)
+            strategicAlignment: number;
+            currentStanding: number;
         }
     };
     goals: {
@@ -48,6 +47,8 @@ export interface Country {
     established: string;
     nationalDay: string;
     newYear: string;
+    language: string;
+    ethnic_groups: string[];
 }
 
 export interface Message {

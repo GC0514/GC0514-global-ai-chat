@@ -63,7 +63,14 @@ export const generateInitialGoals = (
 };
 
 
-const generateStatement = (responder: Country, instigator: Country, relationship: 'ally' | 'rival' | 'neutral', intensity: AiIntensity): { assessment: string, statement: string } => {
+const generateStatement = (
+    responder: Country,
+    instigator: Country,
+    relationship: 'ally' | 'rival' | 'neutral',
+    intensity: AiIntensity,
+    messageHistory: Message[],
+    allCountries: Record<string, Country>
+): { assessment: string, statement: string } => {
     const persona = responder.persona as Persona;
     let assessment = '';
     let statement = '';
@@ -71,36 +78,48 @@ const generateStatement = (responder: Country, instigator: Country, relationship
     const intensityMultiplier = { simple: 0, medium: 1, high: 2, intense: 3 };
     const level = intensityMultiplier[intensity];
 
-    // **Goal-Driven Logic**: 50% chance to proactively pursue a goal
-    if (Math.random() < 0.5) {
-        assessment = `(Internal Assessment: An opportunity to advance our agenda. Our current short-term goal is: "${responder.goals.short_term}". I will pivot the conversation.)`;
-        statement = `While ${responder.name} acknowledges the points made by ${instigator.name}, we believe the international community's focus must be directed towards a more pressing issue. In line with our objective to "${responder.goals.short_term}", we propose that...`;
+    // **Contextual Memory Logic**
+    const recentHistory = messageHistory.slice(-5);
+    let contextSummary = "(Context: No recent messages.)";
+    if (recentHistory.length > 1) {
+        const lastFewSpeakers = recentHistory.map(m => allCountries[m.senderId]?.name || 'News').join(', ');
+        // FIX: Replaced .at(-1) with array[array.length - 1] for wider compatibility with older TypeScript/JavaScript versions.
+        const lastMessage = recentHistory[recentHistory.length - 1];
+        const mainTopic = lastMessage?.title || lastMessage?.text.substring(0, 30) + '...';
+        contextSummary = `(Context: Recent discussion on "${mainTopic}" involving ${lastFewSpeakers}.)`;
+    }
+
+    // **Goal-Driven Logic**: Higher chance to pursue a goal if the conversation is irrelevant or an opportunity arises.
+    const shouldPursueGoal = Math.random() < 0.4;
+
+    if (shouldPursueGoal) {
+        assessment = `(Internal Assessment: ${contextSummary} This is an opportunity to advance our agenda. Our goal: "${responder.goals.short_term}". I will pivot.)`;
+        statement = `${responder.name} has been following the discussion. However, we must not lose sight of a more pressing matter. In line with our objective to "${responder.goals.short_term}", we propose that...`;
     } else {
-        // **Relationship-Driven Logic (original logic)**
+        // **Relationship and Context-Driven Logic**
         switch (relationship) {
             case 'ally':
-                assessment = `(Internal Assessment: An opportunity to reinforce our alliance with ${instigator.name}. This aligns with our interest in ${persona.core_interests.security}.)`;
-                statement = `On behalf of ${responder.name}, we stand in solidarity with our partner, ${instigator.name}. ${persona.behavioral_patterns.towards_allies}`;
-                if (level > 1) statement += ` We fully endorse their position and will offer our support.`;
+                assessment = `(Internal Assessment: ${contextSummary} I will support my ally, ${instigator.name}. This aligns with our interest in ${persona.core_interests.security}.)`;
+                statement = `${responder.name} concurs with the sentiment expressed by our partner, ${instigator.name}. ${persona.behavioral_patterns.towards_allies}`;
+                if (level > 1) statement += ` We fully endorse their position and will offer our support in this matter.`;
                 break;
             case 'rival':
-                assessment = `(Internal Assessment: We must challenge ${instigator.name}'s narrative. This action potentially undermines our interest in ${persona.core_interests.economic} and ${persona.core_interests.security}.)`;
-                statement = `The statement from ${instigator.name} is viewed with concern by ${responder.name}. ${persona.behavioral_patterns.towards_rivals}`;
-                if (level > 1) statement += ` We urge other nations to consider the implications of such rhetoric.`;
-                if (level > 2) statement = `The baseless assertions from ${instigator.name} are a direct threat to stability! ${responder.name} unequivocally condemns this and will consider all necessary measures to protect its interests.`;
+                assessment = `(Internal Assessment: ${contextSummary} I must challenge the narrative from our rival, ${instigator.name}, as it undermines our interests.)`;
+                statement = `The recent statement from ${instigator.name} is viewed with significant concern by ${responder.name}. ${persona.behavioral_patterns.towards_rivals}`;
+                if (level > 1) statement += ` We cannot let such assertions go unchallenged.`;
+                if (level > 2) statement = `The baseless claims from ${instigator.name} are a direct threat to regional stability! ${responder.name} unequivocally condemns this and will consider all necessary measures.`;
                 break;
             case 'neutral':
             default:
-                assessment = `(Internal Assessment: A neutral stance is wisest. We will observe how this affects our interest in ${persona.core_interests.economic}.)`;
-                statement = `${responder.name} acknowledges the points raised. We are listening to all parties and encourage continued constructive dialogue to find a peaceful resolution.`;
+                assessment = `(Internal Assessment: ${contextSummary} A neutral stance is wisest. We will observe.)`;
+                statement = `${responder.name} acknowledges the points raised by ${instigator.name}. We continue to listen to all parties and encourage constructive dialogue.`;
                 break;
         }
     }
 
-
     // Add persona-specific rhetorical flair
     if (persona.communication_style.rhetoric.length > 0) {
-        statement += ` As our history teaches us, ${persona.communication_style.rhetoric[Math.floor(Math.random() * persona.communication_style.rhetoric.length)]}.`;
+        statement += ` We must remember that ${persona.communication_style.rhetoric[Math.floor(Math.random() * persona.communication_style.rhetoric.length)]}.`;
     }
 
     return { assessment, statement };
@@ -154,7 +173,8 @@ export const generatePublicResponse = (
     triggerMessage: Message, 
     chat: Chat, 
     intensity: AiIntensity, 
-    countries: Record<string, Country>
+    countries: Record<string, Country>,
+    messageHistory: Message[]
 ): Message[] => {
     const instigatorId = triggerMessage.senderId;
     // News flashes are from a neutral source, so we can pick a random country to be the "instigator"
@@ -202,7 +222,7 @@ export const generatePublicResponse = (
         }
 
         const relationship = getRelationship(country, instigator.id);
-        const { assessment, statement } = generateStatement(country, instigator, relationship, intensity);
+        const { assessment, statement } = generateStatement(country, instigator, relationship, intensity, messageHistory, countries);
        
         return {
             id: Date.now() + index,
@@ -217,21 +237,30 @@ export const generatePublicResponse = (
 export const generatePrivateResponse = (
     triggerMessage: Message, 
     chat: Chat,
-    countries: Record<string, Country>
+    countries: Record<string, Country>,
+    messageHistory: Message[]
 ): Message => {
     const countryId = chat.participants.find(p => p !== 'observer')!;
     const country = countries[countryId];
     const userText = triggerMessage.text.toLowerCase();
     let responseText = '';
+    
+    const lastOwnMessage = messageHistory.slice().reverse().find(m => m.senderId === country.id);
 
     if (userText.includes('your goal') || userText.includes('objective')) {
         responseText = `Privately, our current short-term focus is to "${country.goals.short_term}". This guides our immediate actions on the global stage.`;
-    } else if (userText.includes('politic') || userText.includes('government') || userText.includes('stance')) {
-        responseText = `Candidly, our political stance is guided by our core interests. While we advocate for diplomacy publicly, we must also ensure our nation's security and economic prosperity are never compromised.`;
-    } else if (userText.includes('culture') || userText.includes('history') || userText.includes('food')) {
-        responseText = `I'd be delighted to tell you about that! ${country.name} has a rich cultural heritage. Our cuisine is famous for its unique flavors, and historical landmarks attract visitors worldwide.`;
+    } else if (userText.includes('relationship with') || userText.includes('opinion of')) {
+        const mentionedCountry = Object.values(countries).find(c => userText.includes(c.name.toLowerCase()));
+        if (mentionedCountry) {
+            const relationship = getRelationship(country, mentionedCountry.id);
+            responseText = `Between us, our relationship with ${mentionedCountry.name} is complex. We officially consider them a ${relationship}. Our interactions are guided by that standing.`;
+        } else {
+            responseText = `Who are you referring to specifically? Our foreign policy is a complex web of relationships.`;
+        }
+    } else if (userText.includes('last statement') || userText.includes('you said')) {
+         responseText = `Ah, regarding my last statement... ${lastOwnMessage ? `I was referring to: "${lastOwnMessage.text.split('\n\n')[1].substring(0, 80)}...". ` : `I don't recall my last comment precisely, but `} My intention was to advance our national interests while maintaining regional stability.`;
     } else {
-        responseText = `Hello! It's a pleasure to speak with you directly. I represent ${country.name}. How can I assist you?`;
+        responseText = `Hello! It's a pleasure to speak with you directly. I represent ${country.name}. How can I assist you in understanding our perspective?`;
     }
 
     return {

@@ -1,15 +1,92 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Chat, Message, AiIntensity, Country, NewsItem } from './types';
-import { INITIAL_CHATS, INITIAL_MESSAGES, INITIAL_COUNTRIES, TRANSLATIONS } from './data';
-import { generatePublicResponse, generatePrivateResponse, evaluateAndGetRelationshipUpdates } from './ai';
+import { Chat, Message, AiIntensity, Country, NewsItem, Persona } from './types';
+import { RAW_COUNTRIES, EVENT_KNOWLEDGE_BASE, BREAKING_NEWS_OPTIONS, TRANSLATIONS, G7_MEMBERS, BRICS_MEMBERS, SCO_MEMBERS, NATO_MEMBERS, EU_MEMBERS, AU_MEMBERS, ARAB_LEAGUE_MEMBERS, GCC_MEMBERS } from './data';
+import { generatePublicResponse, generatePrivateResponse, evaluateAndGetRelationshipUpdates, generateInitialGoals } from './ai';
 import { playNotificationSound } from './utils';
 import { Header, NavColumn, ListViewColumn, ChatWindow, CountryProfileModal, SettingsModal, NewsEventModal } from './components';
 
+// This function centralizes all the complex startup logic to avoid circular dependencies.
+const initializeAppState = () => {
+    // 1. Process Raw Countries to create the base Country objects
+    const processedCountries: Record<string, any> = {};
+    const countryIds = Object.keys(RAW_COUNTRIES);
+
+    for (const id of countryIds) {
+        const raw = RAW_COUNTRIES[id];
+        processedCountries[id] = {
+            ...raw,
+            relationships: {},
+            goals: { short_term: 'Assess global situation.', long_term: 'Ensure national prosperity and security.' },
+            persona: raw.persona as Persona | undefined, // Cast persona to its proper type
+        };
+        // Clean up relationship_matrix from the live object after processing
+        if (processedCountries[id].persona && 'relationship_matrix' in processedCountries[id].persona) {
+            delete processedCountries[id].persona.relationship_matrix;
+        }
+    }
+
+    // 2. Generate initial goals based on the knowledge base
+    const countriesWithGoals = generateInitialGoals(processedCountries, EVENT_KNOWLEDGE_BASE);
+
+    // 3. Populate relationships for each country
+    for (const idA of countryIds) {
+        const countryA = countriesWithGoals[idA];
+        const personaA = RAW_COUNTRIES[idA].persona;
+
+        for (const idB of countryIds) {
+            if (idA === idB) continue;
+
+            let strategicAlignment = 0; // Default neutral
+            if (personaA?.relationship_matrix) {
+                if (personaA.relationship_matrix.allies.includes(idB)) {
+                    strategicAlignment = 8;
+                } else if (personaA.relationship_matrix.rivals.includes(idB)) {
+                    strategicAlignment = -8;
+                }
+            }
+            
+            countryA.relationships[idB] = {
+                strategicAlignment,
+                currentStanding: 0,
+            };
+        }
+    }
+
+    // 4. Create initial chats using the fully processed countries list
+    const initialChats: Chat[] = [
+        { id: 'global', name: '🌍 Global Country Chat', type: 'group', participants: ['observer', ...Object.keys(countriesWithGoals)] },
+        { id: 'g7', name: '🤝 G7', type: 'group', participants: ['observer', ...G7_MEMBERS] },
+        { id: 'brics', name: '🧱 BRICS', type: 'group', participants: ['observer', ...BRICS_MEMBERS] },
+        { id: 'sco', name: '🌐 Shanghai Cooperation Organisation', type: 'group', participants: ['observer', ...SCO_MEMBERS] },
+        { id: 'nato', name: '🛡️ NATO', type: 'group', participants: ['observer', ...NATO_MEMBERS] },
+        { id: 'eu', name: '🇪🇺 European Union', type: 'group', participants: ['observer', ...EU_MEMBERS] },
+        { id: 'au', name: '🌍 African Union', type: 'group', participants: ['observer', ...AU_MEMBERS] },
+        { id: 'arab_league', name: '🕊️ Arab League', type: 'group', participants: ['observer', ...ARAB_LEAGUE_MEMBERS] },
+        { id: 'gcc', name: '⭐ Gulf Cooperation Council', type: 'group', participants: ['observer', ...GCC_MEMBERS] },
+    ];
+
+    // 5. Create initial messages
+     const initialMessages: Message[] = [
+        { id: 1, chatId: 'global', senderId: 'USA', text: 'Welcome delegates. The United States calls this session of the Global Country Chat to order. We have much to discuss.', timestamp: Date.now() - 1000 * 60 * 5 },
+        { id: 2, chatId: 'global', senderId: 'CHN', text: 'China is present and looks forward to a productive discussion based on mutual respect and non-interference.', timestamp: Date.now() - 1000 * 60 * 4 },
+        { id: 3, chatId: 'g7', senderId: 'GBR', text: 'G7 members, an urgent matter has been brought to our attention regarding global economic stability.', timestamp: Date.now() - 1000 * 60 * 2 },
+    ];
+
+
+    return {
+        countries: countriesWithGoals as Record<string, Country>,
+        chats: initialChats,
+        messages: initialMessages,
+    };
+};
+
+const initialState = initializeAppState();
+
 export const App = () => {
-    const [countries, setCountries] = useState<Record<string, Country>>(INITIAL_COUNTRIES);
-    const [chats, setChats] = useState<Chat[]>(INITIAL_CHATS);
+    const [countries, setCountries] = useState<Record<string, Country>>(initialState.countries);
+    const [chats, setChats] = useState<Chat[]>(initialState.chats);
     const [activeChatId, setActiveChatId] = useState<string | null>('global');
-    const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+    const [messages, setMessages] = useState<Message[]>(initialState.messages);
     const [modalCountry, setModalCountry] = useState<Country | null>(null);
     const [activeView, setActiveView] = useState<'chats' | 'directory'>('chats');
     const [isSettingsOpen, setSettingsOpen] = useState(false);
@@ -18,7 +95,7 @@ export const App = () => {
     const [language, setLanguage] = useState<'en' | 'zh'>('en');
     const [aiIntensity, setAiIntensity] = useState<AiIntensity>('medium');
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
-    const messageIdCounter = useRef(INITIAL_MESSAGES.length + 1);
+    const messageIdCounter = useRef(initialState.messages.length + 1);
 
     const t = TRANSLATIONS[language];
     const activeChat = chats.find(c => c.id === activeChatId);
@@ -29,7 +106,7 @@ export const App = () => {
     }, [activeChatId]);
     
     useEffect(() => {
-        if (messages.length <= INITIAL_MESSAGES.length) return;
+        if (messages.length <= initialState.messages.length) return;
         const lastMessage = messages[messages.length - 1];
         if (lastMessage.senderId !== 'observer' && lastMessage.chatId !== activeChatIdRef.current) {
             playNotificationSound();
@@ -53,11 +130,9 @@ export const App = () => {
             for (const countryId in updates) {
                 const { targetId, change } = updates[countryId];
                 
-                // Update relationship from countryId to targetId
                 if (newCountries[countryId] && newCountries[countryId].relationships[targetId]) {
                     newCountries[countryId].relationships[targetId].currentStanding += change;
                 }
-                // Update reciprocal relationship from targetId to countryId
                 if (newCountries[targetId] && newCountries[targetId].relationships[countryId]) {
                     newCountries[targetId].relationships[countryId].currentStanding += change;
                 }
@@ -68,7 +143,6 @@ export const App = () => {
 
     const addMessage = (msg: Message, chatContext: Chat) => {
         setMessages(prev => [...prev, msg]);
-        // Update relationships based on the new message
         handleRelationshipUpdates(msg, chatContext);
     };
     
@@ -76,7 +150,7 @@ export const App = () => {
         msgs.forEach((res, index) => {
             setTimeout(() => {
                 addMessage(res, chatContext);
-            }, (index + 1) * 100); // Use a fixed short delay instead of timestamp
+            }, (index + 1) * 100);
         });
     };
 
@@ -94,12 +168,14 @@ export const App = () => {
             id: messageIdCounter.current++, chatId: activeChatId, senderId: 'observer', text, timestamp: Date.now(),
         };
         addMessage(newMessage, activeChat);
+        
+        const messageHistory = messages.filter(m => m.chatId === activeChatId);
 
         if (activeChat.type === 'private') {
-            const response = generatePrivateResponse(newMessage, activeChat, countries);
+            const response = generatePrivateResponse(newMessage, activeChat, countries, messageHistory);
             addMessage(response, activeChat);
         } else if (activeChat.type === 'group') {
-            const responses = generatePublicResponse(newMessage, activeChat, aiIntensity, countries);
+            const responses = generatePublicResponse(newMessage, activeChat, aiIntensity, countries, messageHistory);
             addMessagesWithDelay(responses, activeChat);
         }
     };
@@ -118,9 +194,10 @@ export const App = () => {
         };
         addMessage(newsMessage, globalChat);
         setNewsModalOpen(false);
+        
+        const messageHistory = messages.filter(m => m.chatId === 'global');
 
-        // Also trigger public responses to the news
-        const responses = generatePublicResponse(newsMessage, globalChat, aiIntensity, countries);
+        const responses = generatePublicResponse(newsMessage, globalChat, aiIntensity, countries, messageHistory);
         addMessagesWithDelay(responses, globalChat);
     };
 

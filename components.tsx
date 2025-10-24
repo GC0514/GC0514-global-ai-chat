@@ -24,8 +24,6 @@ export const NavColumn = ({ activeView, onSelectView, t }) => (
     </nav>
 );
 
-// FIX: Define props interface for ListViewColumn to provide strong types for its props.
-// This resolves TypeScript errors where properties were being accessed on 'unknown' types.
 interface ListViewColumnProps {
     activeView: 'chats' | 'directory';
     chats: Chat[];
@@ -160,13 +158,8 @@ export const ChatWindow = ({ chat, countries, messages, onSendMessage, onOpenNew
     useLayoutEffect(() => {
         const el = messageListRef.current;
         if (!el) return;
-
-        const isScrolledToBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 50;
-
-        if (isScrolledToBottom) {
-            el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-        }
-    }, [messages]);
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    }, [messages, chat]);
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -247,7 +240,6 @@ export const MessageComponent = ({ message, countries }: { message: Message, cou
 };
 
 export const CountryProfileModal = ({ country, onClose, onStartChat, t }) => {
-    const [showDetails, setShowDetails] = useState(false);
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -258,27 +250,23 @@ export const CountryProfileModal = ({ country, onClose, onStartChat, t }) => {
 
                 <div className="profile-details">
                     <dl>
-                        <dt>Short-Term Goal</dt>
+                        <dt>{t.language}</dt>
+                        <dd>{country.language}</dd>
+                        <dt>{t.ethnicGroups}</dt>
+                        <dd>{country.ethnic_groups.join(', ')}</dd>
+                        <dt>{t.shortTermGoal}</dt>
                         <dd>{country.goals.short_term}</dd>
-                        <dt>Long-Term Goal</dt>
+                        <dt>{t.longTermGoal}</dt>
                         <dd>{country.goals.long_term}</dd>
+                        <dt>{t.motto}</dt>
+                        <dd>{country.motto}</dd>
                     </dl>
                 </div>
-
-                {showDetails && (
-                    <div className="profile-details">
-                        <dl>
-                            <dt>{t.motto}</dt><dd>{country.motto}</dd>
-                            <dt>{t.established}</dt><dd>{country.established}</dd>
-                            <dt>{t.nationalDay}</dt><dd>{country.nationalDay}</dd>
-                            <dt>{t.newYear}</dt><dd>{country.newYear}</dd>
-                        </dl>
-                        <p className="modal-description" style={{ marginTop: '1rem' }}>{country.detailedProfile}</p>
-                    </div>
-                )}
+                 <p className="modal-description" style={{ marginTop: '1rem' }}>{country.detailedProfile}</p>
+                
                 <div className="modal-actions">
-                    <button className="modal-button secondary" onClick={() => setShowDetails(s => !s)}>
-                        {showDetails ? t.lessInfo : t.moreInfo}
+                     <button className="modal-button secondary" onClick={onClose}>
+                        {t.close}
                     </button>
                     <button className="modal-button primary" onClick={onStartChat}>
                         {t.chat}
