@@ -1,6 +1,6 @@
 import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { Country, Message, Chat, AiIntensity, NewsItem } from './types';
-import { COUNTRIES, MOCK_NEWS_ITEMS } from './data';
+import { BREAKING_NEWS_OPTIONS } from './data';
 
 // --- CHILD COMPONENTS ---
 
@@ -24,8 +24,22 @@ export const NavColumn = ({ activeView, onSelectView, t }) => (
     </nav>
 );
 
-export const ListViewColumn = ({ activeView, chats, activeChatId, unreadCounts, onSelectChat, onSelectCountry, onCloseChat, onReorderChats }) => {
-    const directory = Object.values(COUNTRIES);
+// FIX: Define props interface for ListViewColumn to provide strong types for its props.
+// This resolves TypeScript errors where properties were being accessed on 'unknown' types.
+interface ListViewColumnProps {
+    activeView: 'chats' | 'directory';
+    chats: Chat[];
+    countries: Record<string, Country>;
+    activeChatId: string | null;
+    unreadCounts: Record<string, number>;
+    onSelectChat: (chatId: string) => void;
+    onSelectCountry: (countryId: string) => void;
+    onCloseChat: (chatId: string) => void;
+    onReorderChats: (draggedId: string, targetId: string) => void;
+}
+
+export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chats, countries, activeChatId, unreadCounts, onSelectChat, onSelectCountry, onCloseChat, onReorderChats }) => {
+    const directory = Object.values(countries);
     const continents = ['All', 'Africa', 'Asia', 'Europe', 'North America', 'Oceania', 'South America'];
     const [continentFilter, setContinentFilter] = useState('All');
     const [searchTerm, setSearchTerm] = useState('');
@@ -38,7 +52,7 @@ export const ListViewColumn = ({ activeView, chats, activeChatId, unreadCounts, 
     );
 
     const filteredChats = chats.filter(chat => {
-        const country = chat.type === 'private' ? COUNTRIES[chat.participants.find(p => p !== 'observer')] : null;
+        const country = chat.type === 'private' ? countries[chat.participants.find(p => p !== 'observer')] : null;
         const name = country ? country.name : chat.name;
         return name.toLowerCase().includes(searchTerm.toLowerCase());
     });
@@ -86,7 +100,7 @@ export const ListViewColumn = ({ activeView, chats, activeChatId, unreadCounts, 
                 <ul>
                     {filteredChats.map(chat => {
                         const isPrivate = chat.type === 'private';
-                        const country = isPrivate ? COUNTRIES[chat.participants.find(p => p !== 'observer')] : null;
+                        const country = isPrivate ? countries[chat.participants.find(p => p !== 'observer')] : null;
                         const avatar = isPrivate ? country?.avatar : chat.name.split(' ')[0];
                         const name = isPrivate ? country?.name : chat.name.substring(chat.name.indexOf(' ') + 1);
                         const unreadCount = unreadCounts[chat.id] || 0;
@@ -138,7 +152,7 @@ export const ListViewColumn = ({ activeView, chats, activeChatId, unreadCounts, 
     );
 }
 
-export const ChatWindow = ({ chat, messages, onSendMessage, onOpenNewsModal }) => {
+export const ChatWindow = ({ chat, countries, messages, onSendMessage, onOpenNewsModal }) => {
     const messageListRef = useRef<HTMLDivElement>(null);
     const [inputValue, setInputValue] = useState('');
     const [isEmojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -175,7 +189,7 @@ export const ChatWindow = ({ chat, messages, onSendMessage, onOpenNewsModal }) =
         <main className="chat-window frosted-panel">
             <header className="chat-header">{chat.name}</header>
             <div className="message-list" ref={messageListRef}>
-                {messages.map(msg => <MessageComponent key={msg.id} message={msg} />)}
+                {messages.map(msg => <MessageComponent key={msg.id} message={msg} countries={countries} />)}
             </div>
             <div className="message-input-area">
                 {isEmojiPickerOpen && (
@@ -206,7 +220,7 @@ export const ChatWindow = ({ chat, messages, onSendMessage, onOpenNewsModal }) =
     );
 };
 
-export const MessageComponent = ({ message }: { message: Message }) => {
+export const MessageComponent = ({ message, countries }: { message: Message, countries: Record<string, Country> }) => {
     if (message.senderId === 'news_flash') {
         return (
             <div className="message news-flash">
@@ -218,7 +232,7 @@ export const MessageComponent = ({ message }: { message: Message }) => {
         );
     }
 
-    const sender = message.senderId === 'observer' ? { name: 'Observer', avatar: '👤' } : COUNTRIES[message.senderId];
+    const sender = message.senderId === 'observer' ? { name: 'Observer', avatar: '👤' } : countries[message.senderId];
     if (!sender) return null;
 
     return (
@@ -241,6 +255,16 @@ export const CountryProfileModal = ({ country, onClose, onStartChat, t }) => {
                 <div className="modal-avatar">{country.avatar}</div>
                 <h3 className="modal-name">{country.name}</h3>
                 <p className="modal-description">{country.profile}</p>
+
+                <div className="profile-details">
+                    <dl>
+                        <dt>Short-Term Goal</dt>
+                        <dd>{country.goals.short_term}</dd>
+                        <dt>Long-Term Goal</dt>
+                        <dd>{country.goals.long_term}</dd>
+                    </dl>
+                </div>
+
                 {showDetails && (
                     <div className="profile-details">
                         <dl>
@@ -316,7 +340,7 @@ export const NewsEventModal = ({ onClose, onPostEvent }) => {
     useEffect(() => {
         // Simulate fetching news from an API
         const timer = setTimeout(() => {
-            setNewsItems(MOCK_NEWS_ITEMS);
+            setNewsItems(BREAKING_NEWS_OPTIONS);
             setIsLoading(false);
         }, 1500);
 

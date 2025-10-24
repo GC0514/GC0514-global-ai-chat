@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message, AiIntensity, Country, NewsItem } from './types';
-import { INITIAL_CHATS, INITIAL_MESSAGES, COUNTRIES, TRANSLATIONS, MOCK_NEWS_ITEMS } from './data';
-import { generatePublicResponse, generatePrivateResponse } from './ai';
+import { INITIAL_CHATS, INITIAL_MESSAGES, INITIAL_COUNTRIES, TRANSLATIONS } from './data';
+import { generatePublicResponse, generatePrivateResponse, evaluateAndGetRelationshipUpdates } from './ai';
 import { playNotificationSound } from './utils';
 import { Header, NavColumn, ListViewColumn, ChatWindow, CountryProfileModal, SettingsModal, NewsEventModal } from './components';
 
 export const App = () => {
+    const [countries, setCountries] = useState<Record<string, Country>>(INITIAL_COUNTRIES);
     const [chats, setChats] = useState<Chat[]>(INITIAL_CHATS);
     const [activeChatId, setActiveChatId] = useState<string | null>('global');
     const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
@@ -21,27 +22,15 @@ export const App = () => {
 
     const t = TRANSLATIONS[language];
     const activeChat = chats.find(c => c.id === activeChatId);
-
-    // --- START OF THE DEFINITIVE FIX ---
-
-    // 1. Create a ref to hold a persistent, mutable reference to the active chat ID.
+    
     const activeChatIdRef = useRef(activeChatId);
-
-    // 2. Use a dedicated useEffect to keep the ref perfectly in sync with the state.
-    // This ensures the ref *always* holds the most current value.
     useEffect(() => {
         activeChatIdRef.current = activeChatId;
     }, [activeChatId]);
     
-    // 3. The notification useEffect now ONLY depends on `messages`.
     useEffect(() => {
-        // Guard against running for the initial batch of messages on load.
         if (messages.length <= INITIAL_MESSAGES.length) return;
-    
         const lastMessage = messages[messages.length - 1];
-    
-        // The critical comparison now uses the ALWAYS CURRENT value from the ref,
-        // solving the "stale state" problem.
         if (lastMessage.senderId !== 'observer' && lastMessage.chatId !== activeChatIdRef.current) {
             playNotificationSound();
             setUnreadCounts(prev => ({
@@ -49,22 +38,45 @@ export const App = () => {
                 [lastMessage.chatId]: (prev[lastMessage.chatId] || 0) + 1,
             }));
         }
-    }, [messages]); // <-- This hook now correctly and safely depends ONLY on messages.
-
-    // --- END OF THE DEFINITIVE FIX ---
-
+    }, [messages]);
 
     useEffect(() => {
         document.body.className = `theme-${theme}`;
     }, [theme]);
 
-    const addMessage = (msg: Message) => {
-        setMessages(prev => [...prev, msg]);
+    const handleRelationshipUpdates = (message: Message, chat: Chat) => {
+        const updates = evaluateAndGetRelationshipUpdates(message, chat, countries);
+        if (Object.keys(updates).length === 0) return;
+
+        setCountries(prevCountries => {
+            const newCountries = JSON.parse(JSON.stringify(prevCountries));
+            for (const countryId in updates) {
+                const { targetId, change } = updates[countryId];
+                
+                // Update relationship from countryId to targetId
+                if (newCountries[countryId] && newCountries[countryId].relationships[targetId]) {
+                    newCountries[countryId].relationships[targetId].currentStanding += change;
+                }
+                // Update reciprocal relationship from targetId to countryId
+                if (newCountries[targetId] && newCountries[targetId].relationships[countryId]) {
+                    newCountries[targetId].relationships[countryId].currentStanding += change;
+                }
+            }
+            return newCountries;
+        });
     };
 
-    const addMessagesWithDelay = (msgs: Message[]) => {
-        msgs.forEach(res => {
-            setTimeout(() => addMessage(res), res.timestamp - Date.now());
+    const addMessage = (msg: Message, chatContext: Chat) => {
+        setMessages(prev => [...prev, msg]);
+        // Update relationships based on the new message
+        handleRelationshipUpdates(msg, chatContext);
+    };
+    
+    const addMessagesWithDelay = (msgs: Message[], chatContext: Chat) => {
+        msgs.forEach((res, index) => {
+            setTimeout(() => {
+                addMessage(res, chatContext);
+            }, (index + 1) * 100); // Use a fixed short delay instead of timestamp
         });
     };
 
@@ -81,26 +93,35 @@ export const App = () => {
         const newMessage: Message = {
             id: messageIdCounter.current++, chatId: activeChatId, senderId: 'observer', text, timestamp: Date.now(),
         };
-        addMessage(newMessage);
+        addMessage(newMessage, activeChat);
 
         if (activeChat.type === 'private') {
-            addMessagesWithDelay([generatePrivateResponse(newMessage, activeChat)]);
+            const response = generatePrivateResponse(newMessage, activeChat, countries);
+            addMessage(response, activeChat);
         } else if (activeChat.type === 'group') {
-            addMessagesWithDelay(generatePublicResponse(newMessage, activeChat, aiIntensity));
+            const responses = generatePublicResponse(newMessage, activeChat, aiIntensity, countries);
+            addMessagesWithDelay(responses, activeChat);
         }
     };
 
     const handlePostNewsEvent = (newsItem: NewsItem) => {
+        const globalChat = chats.find(c => c.id === 'global');
+        if (!globalChat) return;
+
         const newsMessage: Message = {
             id: messageIdCounter.current++,
-            chatId: 'global', // Events always post to the global chat
+            chatId: 'global',
             senderId: 'news_flash',
             title: newsItem.title,
             text: newsItem.snippet,
             timestamp: Date.now(),
         };
-        addMessage(newsMessage);
+        addMessage(newsMessage, globalChat);
         setNewsModalOpen(false);
+
+        // Also trigger public responses to the news
+        const responses = generatePublicResponse(newsMessage, globalChat, aiIntensity, countries);
+        addMessagesWithDelay(responses, globalChat);
     };
 
     const handleStartPrivateChat = (countryId: string) => {
@@ -110,7 +131,7 @@ export const App = () => {
         if (existingChat) {
             handleSelectChat(existingChat.id);
         } else {
-            const country = COUNTRIES[countryId];
+            const country = countries[countryId];
             const newChat: Chat = {
                 id: privateChatId,
                 name: `${country.avatar} ${country.name}`,
@@ -127,7 +148,7 @@ export const App = () => {
     const handleClosePrivateChat = (chatId: string) => {
         setChats(prev => prev.filter(c => c.id !== chatId));
         if (activeChatId === chatId) {
-            setActiveChatId(null);
+            setActiveChatId('global');
         }
     };
 
@@ -156,16 +177,18 @@ export const App = () => {
             <ListViewColumn
                 activeView={activeView}
                 chats={chats}
+                countries={countries}
                 activeChatId={activeChatId}
                 unreadCounts={unreadCounts}
                 onSelectChat={handleSelectChat}
-                onSelectCountry={(countryId) => setModalCountry(COUNTRIES[countryId])}
+                onSelectCountry={(countryId) => setModalCountry(countries[countryId])}
                 onCloseChat={handleClosePrivateChat}
                 onReorderChats={handleReorderChats}
             />
             <ChatWindow
                 key={activeChatId}
                 chat={activeChat}
+                countries={countries}
                 messages={activeChat ? messages.filter(m => m.chatId === activeChatId) : []}
                 onSendMessage={handleSendMessage}
                 onOpenNewsModal={() => setNewsModalOpen(true)}
