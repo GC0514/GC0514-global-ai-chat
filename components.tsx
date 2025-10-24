@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { Country, Message, Chat, AiIntensity, NewsItem } from './types';
 import { BREAKING_NEWS_OPTIONS, RANDOM_EVENT_TEMPLATES } from './data';
@@ -51,9 +49,15 @@ export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chat
     );
 
     const filteredChats = chats.filter(chat => {
-        const country = chat.type === 'private' ? countries[chat.participants.find(p => p !== 'observer')] : null;
-        const name = country ? country.name : chat.name;
-        return name.toLowerCase().includes(searchTerm.toLowerCase());
+        let chatName = chat.name;
+        // This logic handles displaying AI-to-AI private chats correctly
+        if (chat.type === 'private' && !chat.participants.includes('observer')) {
+            const aiParticipants = chat.participants.filter(p => countries[p]);
+            if (aiParticipants.length > 1) {
+                 chatName = `🤝 ${aiParticipants.map(id => countries[id].name).join(' & ')}`;
+            }
+        }
+        return chatName.toLowerCase().includes(searchTerm.toLowerCase());
     });
 
     const handleDragStart = (e: React.DragEvent<HTMLLIElement>, id: string) => {
@@ -97,11 +101,18 @@ export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chat
             {activeView === 'chats' ? (
                 <ul>
                     {filteredChats.map(chat => {
-                        const isPrivate = chat.type === 'private';
-                        const country = isPrivate ? countries[chat.participants.find(p => p !== 'observer')] : null;
-                        const avatar = isPrivate ? country?.avatar : chat.name.split(' ')[0];
-                        const name = isPrivate ? country?.name : chat.name.substring(chat.name.indexOf(' ') + 1);
                         const unreadCount = unreadCounts[chat.id] || 0;
+                        const isClosable = chat.type === 'private' || chat.type === 'summit';
+                        
+                        let avatar = chat.name.split(' ')[0];
+                        let name = chat.name.substring(chat.name.indexOf(' ') + 1);
+
+                        // Special rendering for AI-to-AI chats
+                        if (chat.type === 'private' && !chat.participants.includes('observer')) {
+                            const aiParticipants = chat.participants.filter(p => countries[p]);
+                            avatar = '🤝';
+                            name = aiParticipants.map(id => countries[id]?.name).join(' & ');
+                        }
 
                         return (
                             <li
@@ -119,10 +130,10 @@ export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chat
                                 <span className="list-item-avatar">{avatar}</span>
                                 <div className="list-item-info">
                                     <span className="list-item-name">{name}</span>
-                                    {chat.type === 'group' && <span className="participant-count">{chat.participants.length} Members</span>}
+                                    {(chat.type === 'group' || chat.type === 'summit') && <span className="participant-count">{chat.participants.length -1} Members</span>}
                                 </div>
                                 {unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}
-                                {isPrivate && (
+                                {isClosable && (
                                     <button className="close-chat-button" onClick={(e) => { e.stopPropagation(); onCloseChat(chat.id); }}>×</button>
                                 )}
                             </li>
@@ -175,7 +186,7 @@ const generateFakeNewsOptions = (countries: Country[], count = 3): NewsItem[] =>
     const options: NewsItem[] = [];
     for (let i = 0; i < count; i++) {
         const template = RANDOM_EVENT_TEMPLATES[Math.floor(Math.random() * RANDOM_EVENT_TEMPLATES.length)];
-        const involvedCountries = [...countries].sort(() => 0.5 - Math.random()).slice(0, 2);
+        const involvedCountries = [...Object.values(countries)].sort(() => 0.5 - Math.random()).slice(0, 2);
         const region = involvedCountries[0].continent;
 
         let title = template.title.replace('[COUNTRY_A]', involvedCountries[0].name).replace('[COUNTRY_B]', involvedCountries[1].name).replace('[REGION]', region);
@@ -284,7 +295,7 @@ export const ChatWindow = ({ chat, countries, messages: allMessages, onSendMessa
                 {newsPickerState.isOpen && (
                     <NewsPicker
                         type={newsPickerState.type}
-                        countries={Object.values(countries)}
+                        countries={countries}
                         onSelect={(newsItem) => {
                             onPostNewsEvent(newsItem);
                             setNewsPickerState({ isOpen: false, type: 'real' });
@@ -296,12 +307,8 @@ export const ChatWindow = ({ chat, countries, messages: allMessages, onSendMessa
                 <div className="input-toolbar">
                     <button className="toolbar-button" onClick={() => setEmojiPickerOpen(o => !o)}>😊</button>
                     <button className="toolbar-button" onClick={() => setActionsMenuOpen(o => !o)} title="Special Actions">⚡️</button>
-                    {chat.id === 'global' && (
-                        <>
-                            <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'real' })} title="Post Real News Event">📰</button>
-                            <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'fake' })} title="Post Fabricated News Event">💣</button>
-                        </>
-                    )}
+                    <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'real' })} title="Post Real News Event">📰</button>
+                    <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'fake' })} title="Post Fabricated News Event">💣</button>
                 </div>
                 <form className="message-input-form" onSubmit={handleSubmit}>
                     <textarea value={inputValue} onChange={e => setInputValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e as any); } }} className="message-input" placeholder="Type your message as an Observer..." rows={1} />
@@ -354,30 +361,61 @@ export const MessageComponent = ({ message, countries }: { message: Message, cou
     );
 };
 
-export const CountryProfileModal = ({ country, onClose, onStartChat, t }) => (
-    <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close-btn" onClick={onClose}>×</button>
-            <div className="modal-avatar">{country.avatar}</div>
-            <h3 className="modal-name">{country.name}</h3>
+export const CountryProfileModal = ({ country, onClose, onStartChat, t }) => {
+    const [view, setView] = useState<'main' | 'details'>('main');
+
+    const MainView = () => (
+        <>
             <p className="modal-description">{country.profile}</p>
             <div className="profile-details">
                 <dl>
-                    <dt>{t.language}</dt><dd>{country.language}</dd>
-                    <dt>{t.ethnicGroups}</dt><dd>{country.ethnic_groups.join(', ')}</dd>
+                    <dt>📈 {t.economicStability}</dt><dd>{country.economicStability.toFixed(0)} / 100</dd>
+                    <dt>❤️ {t.domesticSupport}</dt><dd>{country.domesticSupport.toFixed(0)} / 100</dd>
+                    <dt>⚠️ {t.militaryAlertLevel}</dt><dd>{country.militaryAlertLevel.toFixed(0)} / 100</dd>
                     <dt>{t.shortTermGoal}</dt><dd>{country.goals.short_term}</dd>
                     <dt>{t.longTermGoal}</dt><dd>{country.goals.long_term}</dd>
-                    <dt>{t.motto}</dt><dd>{country.motto}</dd>
                 </dl>
             </div>
-            <p className="modal-description" style={{ marginTop: '1rem' }}>{country.detailedProfile}</p>
             <div className="modal-actions">
-                <button className="modal-button secondary" onClick={onClose}>{t.close}</button>
+                <button className="modal-button secondary" onClick={() => setView('details')}>{t.details}</button>
                 <button className="modal-button primary" onClick={onStartChat}>{t.chat}</button>
             </div>
+        </>
+    );
+
+    const DetailsView = () => (
+        <>
+            <p className="modal-description">{country.detailedProfile}</p>
+            <div className="profile-details">
+                 <dl>
+                    <dt>{t.continent}</dt><dd>{country.continent}</dd>
+                    <dt>{t.population}</dt><dd>{country.population}</dd>
+                    <dt>{t.established}</dt><dd>{country.established}</dd>
+                    <dt>{t.nationalDay}</dt><dd>{country.nationalDay}</dd>
+                    <dt>{t.newYear}</dt><dd>{country.newYear}</dd>
+                    <dt>{t.language}</dt><dd>{country.language}</dd>
+                    <dt>{t.ethnicGroups}</dt><dd>{country.ethnic_groups.join(', ')}</dd>
+                    <dt>{t.motto}</dt><dd><em>"{country.motto}"</em></dd>
+                </dl>
+            </div>
+            <div className="modal-actions">
+                <button className="modal-button secondary" onClick={() => setView('main')}>{t.back}</button>
+                <button className="modal-button primary" onClick={onStartChat}>{t.chat}</button>
+            </div>
+        </>
+    );
+
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <button className="modal-close-btn" onClick={onClose}>×</button>
+                <div className="modal-avatar">{country.avatar}</div>
+                <h3 className="modal-name">{country.name}</h3>
+                {view === 'main' ? <MainView /> : <DetailsView />}
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 export const SettingsModal = ({ onClose, theme, onThemeChange, language, onLanguageChange, intensity, onIntensityChange, t }) => (
     <div className="modal-overlay settings-modal" onClick={onClose}>

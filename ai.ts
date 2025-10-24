@@ -1,4 +1,3 @@
-
 import { Message, Chat, AiIntensity, Country, Persona, NewsItem } from './types';
 
 const getRelationship = (responder: Country, instigatorId: string): 'ally' | 'rival' | 'neutral' => {
@@ -8,8 +7,8 @@ const getRelationship = (responder: Country, instigatorId: string): 'ally' | 'ri
     const relationshipData = responder.relationships[instigatorId];
     const combinedScore = relationshipData.strategicAlignment + relationshipData.currentStanding;
 
-    if (combinedScore > 3) return 'ally';
-    if (combinedScore < -3) return 'rival';
+    if (combinedScore > 5) return 'ally';
+    if (combinedScore < -5) return 'rival';
     return 'neutral';
 };
 
@@ -73,10 +72,21 @@ const generateStatement = (
         const mainTopic = chat.type === 'summit' ? chat.name : (lastMessage?.title || lastMessage?.text.substring(0, 30) + '...');
         contextSummary = `(Context: Recent discussion on "${mainTopic}" involving ${lastFewSpeakers}.)`;
     }
+    
+    // Factor in internal state
+    let stateModifier = '';
+    if (responder.domesticSupport < 30) {
+        stateModifier = 'My domestic support is dangerously low, I must project strength and patriotism. ';
+    } else if (responder.economicStability < 30) {
+        stateModifier = 'Our economy is in a precarious position, we must seek stability and avoid costly conflicts. ';
+    } else if (responder.militaryAlertLevel > 70) {
+        stateModifier = 'We are at a high state of alert. Our tone must be firm and uncompromising. ';
+    }
+
 
     const relevantConsensus = responder.privateConsensus?.find(c => c.turnExpires > currentTurn);
     if (relevantConsensus) {
-        assessment = `(Internal Assessment: ${contextSummary} Executing on our private consensus with ${relevantConsensus.with.join(', ')}. Our agreed stance is: "${relevantConsensus.stance}")`;
+        assessment = `(Internal Assessment: ${stateModifier}${contextSummary} Executing on our private consensus with ${relevantConsensus.with.join(', ')}. Our agreed stance is: "${relevantConsensus.stance}")`;
         statement = relevantConsensus.stance;
         statement = `${responder.name} would like to state its position clearly. ${statement}`;
     } else {
@@ -84,29 +94,30 @@ const generateStatement = (
 
         if (chat.type === 'summit' || (shouldPursueGoal && instigator)) {
              const focusTopic = chat.type === 'summit' ? chat.name : responder.goals.short_term;
-             assessment = `(Internal Assessment: ${contextSummary} This is an opportunity to advance our agenda regarding "${focusTopic}".)`;
+             assessment = `(Internal Assessment: ${stateModifier}${contextSummary} This is an opportunity to advance our agenda regarding "${focusTopic}".)`;
              statement = `${responder.name} has been following the discussion. On the topic of "${focusTopic}", our position is that...`;
         } else if (instigator) {
             switch (relationship) {
                 case 'ally':
-                    assessment = `(Internal Assessment: ${contextSummary} I will support my ally, ${instigator.name}. This aligns with our interest in ${persona.core_interests.security[0]}.)`;
+                    assessment = `(Internal Assessment: ${stateModifier}${contextSummary} I will support my ally, ${instigator.name}. This aligns with our interest in ${persona.core_interests.security[0]}.)`;
                     statement = `${responder.name} concurs with the sentiment expressed by our partner, ${instigator.name}. ${persona.behavioral_patterns.towards_allies}`;
                     if (level > 1) statement += ` We fully endorse their position and will offer our support in this matter.`;
                     break;
                 case 'rival':
-                    assessment = `(Internal Assessment: ${contextSummary} I must challenge the narrative from our rival, ${instigator.name}, as it undermines our interests.)`;
+                    assessment = `(Internal Assessment: ${stateModifier}${contextSummary} I must challenge the narrative from our rival, ${instigator.name}, as it undermines our interests.)`;
                     statement = `The recent statement from ${instigator.name} is viewed with significant concern by ${responder.name}. ${persona.behavioral_patterns.towards_rivals}`;
-                    if (level > 1) statement += ` We cannot let such assertions go unchallenged.`;
-                    if (level > 2) statement = `The baseless claims from ${instigator.name} are a direct threat to regional stability! ${responder.name} unequivocally condemns this and will consider all necessary measures.`;
+                    if (level > 1 || responder.domesticSupport < 30) statement += ` We cannot let such assertions go unchallenged.`;
+                    if (level > 2 || responder.militaryAlertLevel > 70) statement = `The baseless claims from ${instigator.name} are a direct threat to regional stability! ${responder.name} unequivocally condemns this and will consider all necessary measures.`;
                     break;
                 case 'neutral':
                 default:
-                    assessment = `(Internal Assessment: ${contextSummary} A neutral stance is wisest. We will observe.)`;
+                    assessment = `(Internal Assessment: ${stateModifier}${contextSummary} A neutral stance is wisest. We will observe.)`;
                     statement = `${responder.name} acknowledges the points raised. We encourage constructive dialogue.`;
+                    if (responder.economicStability < 30) statement += ` Our primary focus must be on global economic stability.`
                     break;
             }
         } else {
-             assessment = `(Internal Assessment: ${contextSummary} A neutral event occurred. I will state a general position.)`;
+             assessment = `(Internal Assessment: ${stateModifier}${contextSummary} A neutral event occurred. I will state a general position.)`;
              statement = `${responder.name} has taken note of the recent developments. This situation requires careful consideration.`;
         }
     }
@@ -139,10 +150,18 @@ export const evaluateAndGetRelationshipUpdates = (
         const relationshipToSender = getRelationship(participant, senderId);
         let change = 0;
 
-        switch (relationshipToSender) {
-            case 'ally': change = 0.5; break;
-            case 'rival': change = -0.5; break;
-            case 'neutral': change = 0; break;
+        // Simple sentiment check (could be much more complex)
+        const negativeKeywords = ['condemn', 'threat', 'baseless', 'unacceptable', 'violates'];
+        const isNegative = new RegExp(negativeKeywords.join('|'), 'i').test(triggerMessage.text);
+
+        if (isNegative) {
+             change = -1.0;
+        } else {
+            switch (relationshipToSender) {
+                case 'ally': change = 0.5; break;
+                case 'rival': change = -0.5; break;
+                case 'neutral': change = 0; break;
+            }
         }
 
         if (change !== 0) {
@@ -255,9 +274,12 @@ export const generatePublicResponse = (
             const country = countries[pId];
             if (!country || pId === instigatorId || pId === 'observer') return false;
             
-            const baseChance = intensityMap[effectiveIntensity] * tierChanceMultipliers[country.tier];
-            const finalChance = country.persona ? baseChance * 1.2 : baseChance;
+            let baseChance = intensityMap[effectiveIntensity] * tierChanceMultipliers[country.tier];
+            // Countries with low domestic support are more likely to talk to distract
+            if (country.domesticSupport < 40) baseChance *= 1.5;
+            if (country.militaryAlertLevel > 60) baseChance *= 1.5; // High alert countries are jumpy
 
+            const finalChance = country.persona ? baseChance * 1.2 : baseChance;
             return Math.random() < Math.min(finalChance, 1.0);
         })
         .map(pId => countries[pId]);
@@ -288,30 +310,106 @@ export const generatePrivateResponse = (
     countries: Record<string, Country>,
     messageHistory: Message[]
 ): Message => {
-    const countryId = chat.participants.find(p => p !== 'observer')!;
-    const country = countries[countryId];
+    const respondingCountryId = chat.participants.find(p => p !== triggerMessage.senderId)!;
+    const respondingCountry = countries[respondingCountryId];
     const userText = triggerMessage.text.toLowerCase();
     let responseText = '';
     
-    const lastOwnMessage = messageHistory.slice().reverse().find(m => m.senderId === country.id);
+    const lastOwnMessage = messageHistory.slice().reverse().find(m => m.senderId === respondingCountry.id);
 
     if (userText.includes('your goal') || userText.includes('objective')) {
-        responseText = `Privately, our current short-term focus is to "${country.goals.short_term}". This guides our immediate actions on the global stage.`;
+        responseText = `Privately, our current short-term focus is to "${respondingCountry.goals.short_term}". This guides our immediate actions.`;
     } else if (userText.includes('relationship with') || userText.includes('opinion of')) {
         const mentionedCountry = Object.values(countries).find(c => userText.includes(c.name.toLowerCase()));
         if (mentionedCountry) {
-            const relationship = getRelationship(country, mentionedCountry.id);
+            const relationship = getRelationship(respondingCountry, mentionedCountry.id);
             responseText = `Between us, our relationship with ${mentionedCountry.name} is complex. We officially consider them a ${relationship}. Our interactions are guided by that standing.`;
         } else {
             responseText = `Who are you referring to specifically? Our foreign policy is a complex web of relationships.`;
         }
     } else if (userText.includes('last statement') || userText.includes('you said')) {
         responseText = `Ah, regarding my last statement... ${lastOwnMessage?.text || 'I do not recall my last statement precisely, but I stand by our country\'s positions.'}`;
-    } else {
+    } else if (chat.participants.includes('observer')) { // Response to Observer
         responseText = "I will take your points under consideration. Thank you for this private channel.";
+    } else { // Response to another AI
+        responseText = `Thank you for reaching out, delegate from ${triggerMessage.senderId}. Let us discuss this matter further. Regarding your point...`;
     }
     
     return {
-        id: Date.now(), chatId: chat.id, senderId: country.id, text: responseText, timestamp: Date.now(),
+        id: Date.now(), chatId: chat.id, senderId: respondingCountry.id, text: responseText, timestamp: Date.now(),
     };
+};
+
+type AutonomousAction = 
+    | { type: 'public_message'; payload: { chatId: string; text: string } }
+    | { type: 'start_private_chat'; payload: { participants: [string, string]; initialMessage: string } };
+
+export const generateAutonomousAction = (
+    actingCountry: Country,
+    allCountries: Record<string, Country>,
+    allChats: Chat[],
+    currentTurn: number
+): AutonomousAction | null => {
+    const persona = actingCountry.persona;
+    if (!persona) return null;
+
+    // Countries with low domestic support or high alert levels are more likely to act
+    const actionBias = ((100 - actingCountry.domesticSupport) / 100) * 0.5 + (actingCountry.militaryAlertLevel / 100) * 0.5;
+    const actionRoll = Math.random();
+
+    if (actionRoll > 0.4 + actionBias) return null; // Less likely to act if things are stable
+    
+    // Action 1: Make a public statement to advance a goal (especially if domestic support is low)
+    if (actionRoll < 0.6 || actingCountry.domesticSupport < 40) {
+        const relevantGroupChats = allChats.filter(c => c.type === 'group' && c.participants.includes(actingCountry.id));
+        if (relevantGroupChats.length === 0) return null;
+        const targetChat = relevantGroupChats[Math.floor(Math.random() * relevantGroupChats.length)];
+        
+        let text = `The delegation of ${actingCountry.name} wishes to put an item on the agenda. It is imperative that we discuss ${actingCountry.goals.short_term}. We believe that ${persona.communication_style.rhetoric[0]}.`;
+        if(actingCountry.domesticSupport < 40) {
+            text = `Let there be no mistake, ${actingCountry.name} is fully committed to achieving its goal of "${actingCountry.goals.short_term}". This is a matter of national priority!`
+        }
+
+        return {
+            type: 'public_message',
+            payload: { chatId: targetChat.id, text }
+        };
+    }
+    
+    // Action 2: Start a private chat with an ally or neutral party (especially if economy is weak)
+    else {
+        const potentialPartners = Object.values(allCountries).filter(c => {
+            if (c.id === actingCountry.id || !c.persona) return false;
+            // Don't talk to someone if tensions are high
+            if (actingCountry.militaryAlertLevel > 60 && getRelationship(actingCountry, c.id) !== 'ally') return false;
+            const relationship = getRelationship(actingCountry, c.id);
+            return relationship === 'ally' || (relationship === 'neutral' && actingCountry.economicStability < 50);
+        });
+
+        if (potentialPartners.length === 0) return null;
+        
+        const targetCountry = potentialPartners[Math.floor(Math.random() * potentialPartners.length)];
+        
+        const existingChat = allChats.find(c => 
+            c.type === 'private' && 
+            c.participants.length === 2 && 
+            c.participants.includes(actingCountry.id) && 
+            c.participants.includes(targetCountry.id)
+        );
+        if (existingChat) return null; // Don't open a duplicate chat
+
+        let initialMessage = `A private message from ${actingCountry.name} to ${targetCountry.name}: Esteemed colleague, I believe it would be mutually beneficial to discuss our shared interests regarding "${actingCountry.goals.short_term}". We see a path for cooperation.`;
+        if(actingCountry.economicStability < 40) {
+             initialMessage = `A private message from ${actingCountry.name} to ${targetCountry.name}: Colleague, in these uncertain economic times, it is wise for pragmatic nations like ours to explore deeper cooperation. I wished to discuss this with you directly.`
+        }
+
+
+        return {
+            type: 'start_private_chat',
+            payload: {
+                participants: [actingCountry.id, targetCountry.id],
+                initialMessage
+            }
+        };
+    }
 };

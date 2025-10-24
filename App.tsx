@@ -1,9 +1,7 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message, AiIntensity, Country, NewsItem, Persona } from './types';
 import { RAW_COUNTRIES, EVENT_KNOWLEDGE_BASE, BREAKING_NEWS_OPTIONS, TRANSLATIONS, G7_MEMBERS, BRICS_MEMBERS, SCO_MEMBERS, NATO_MEMBERS, EU_MEMBERS, AU_MEMBERS, ARAB_LEAGUE_MEMBERS, GCC_MEMBERS, RANDOM_EVENT_TEMPLATES } from './data';
-import { generatePublicResponse, generatePrivateResponse, evaluateAndGetRelationshipUpdates, generateInitialGoals, generateSecretDiplomacy } from './ai';
+import { generatePublicResponse, generatePrivateResponse, evaluateAndGetRelationshipUpdates, generateInitialGoals, generateSecretDiplomacy, generateAutonomousAction } from './ai';
 import { playNotificationSound } from './utils';
 import { Header, NavColumn, ListViewColumn, ChatWindow, CountryProfileModal, SettingsModal, HostSummitModal, LeakIntelModal } from './components';
 
@@ -18,6 +16,9 @@ const initializeAppState = () => {
             relationships: {},
             goals: { short_term: 'Assess global situation.', long_term: 'Ensure national prosperity and security.' },
             persona: raw.persona as Persona | undefined,
+            economicStability: 50 + Math.floor(Math.random() * 20) - 10,
+            domesticSupport: 50 + Math.floor(Math.random() * 20) - 10,
+            militaryAlertLevel: 10 + Math.floor(Math.random() * 10),
             privateConsensus: [],
         };
         if (processedCountries[id].persona && 'relationship_matrix' in processedCountries[id].persona) {
@@ -83,6 +84,8 @@ export const App = () => {
     const [language, setLanguage] = useState<'en' | 'zh'>('zh');
     const [aiIntensity, setAiIntensity] = useState<AiIntensity>('medium');
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+    const [observerMessageCount, setObserverMessageCount] = useState(0);
+
     
     const messageIdCounter = useRef(initialState.messages.length + 1);
     const turnCounter = useRef(1);
@@ -103,19 +106,95 @@ export const App = () => {
         }
     }, [messages]);
 
+    useEffect(() => {
+        if (observerMessageCount > 0 && observerMessageCount % 3 === 0) {
+            handleAutonomousAiAction();
+        }
+    }, [observerMessageCount]);
+
+
+    const handleStatUpdates = (message: Message, chat: Chat) => {
+        const statChanges: Record<string, { eco?: number; sup?: number; mil?: number }> = {};
+        const clamp = (num: number, min: number, max: number) => Math.min(Math.max(num, min), max);
+
+        const applyChange = (id: string, change: { eco?: number; sup?: number; mil?: number }) => {
+            if (!statChanges[id]) statChanges[id] = {};
+            statChanges[id].eco = (statChanges[id].eco || 0) + (change.eco || 0);
+            statChanges[id].sup = (statChanges[id].sup || 0) + (change.sup || 0);
+            statChanges[id].mil = (statChanges[id].mil || 0) + (change.mil || 0);
+        };
+
+        if (message.senderId === 'news_flash') {
+            const allParticipants = Object.keys(countries);
+            if (message.title?.includes('Fusion Energy')) {
+                allParticipants.forEach(id => applyChange(id, { eco: 5 }));
+            } else if (message.title?.includes('Grain Shortage')) {
+                allParticipants.forEach(id => applyChange(id, { eco: -10, sup: -5 }));
+            } else if (message.title?.includes('Data Cable Severed')) {
+                allParticipants.forEach(id => applyChange(id, { mil: 15 }));
+            }
+        } else if (message.senderId === 'intel_leak') {
+             chat.participants.filter(p => p !== 'observer').forEach(id => applyChange(id, { sup: -5, mil: 10 }));
+        } else if (message.senderId !== 'observer' && message.senderId !== 'system') {
+            const relationshipUpdates = evaluateAndGetRelationshipUpdates(message, chat, countries);
+            for (const countryId in relationshipUpdates) {
+                 if (relationshipUpdates[countryId].change < 0) { // Conflict
+                    applyChange(countryId, { mil: 2 });
+                    applyChange(message.senderId, { mil: 2 });
+                 }
+            }
+        }
+
+        if (Object.keys(statChanges).length > 0) {
+            setCountries(prev => {
+                const newCountries = { ...prev };
+                for (const id in statChanges) {
+                    if (newCountries[id]) {
+                        newCountries[id] = {
+                            ...newCountries[id],
+                            economicStability: clamp((newCountries[id].economicStability || 50) + (statChanges[id].eco || 0), 0, 100),
+                            domesticSupport: clamp((newCountries[id].domesticSupport || 50) + (statChanges[id].sup || 0), 0, 100),
+                            militaryAlertLevel: clamp((newCountries[id].militaryAlertLevel || 10) + (statChanges[id].mil || 0), 0, 100),
+                        };
+                    }
+                }
+                return newCountries;
+            });
+        }
+    };
+    
     const handleRelationshipUpdates = (message: Message, chat: Chat) => {
         const updates = evaluateAndGetRelationshipUpdates(message, chat, countries);
         if (Object.keys(updates).length === 0) return;
 
         setCountries(prevCountries => {
-            const newCountries = JSON.parse(JSON.stringify(prevCountries));
+            const newCountries = { ...prevCountries };
             for (const countryId in updates) {
                 const { targetId, change } = updates[countryId];
+                
                 if (newCountries[countryId]?.relationships[targetId]) {
-                    newCountries[countryId].relationships[targetId].currentStanding += change;
+                    newCountries[countryId] = {
+                        ...newCountries[countryId],
+                        relationships: {
+                            ...newCountries[countryId].relationships,
+                            [targetId]: {
+                                ...newCountries[countryId].relationships[targetId],
+                                currentStanding: newCountries[countryId].relationships[targetId].currentStanding + change
+                            }
+                        }
+                    };
                 }
                 if (newCountries[targetId]?.relationships[countryId]) {
-                    newCountries[targetId].relationships[countryId].currentStanding += change;
+                    newCountries[targetId] = {
+                        ...newCountries[targetId],
+                        relationships: {
+                            ...newCountries[targetId].relationships,
+                            [countryId]: {
+                                ...newCountries[targetId].relationships[countryId],
+                                currentStanding: newCountries[targetId].relationships[countryId].currentStanding + change
+                            }
+                        }
+                    };
                 }
             }
             return newCountries;
@@ -128,10 +207,12 @@ export const App = () => {
 
         setMessages(prev => [...prev, msg]);
         handleRelationshipUpdates(msg, chatContext);
+        handleStatUpdates(msg, chatContext);
+
 
         const diplomacy = generateSecretDiplomacy(msg, chatContext, countries, turnCounter.current);
         if (diplomacy.systemMessage) {
-            setMessages(prev => [...prev, diplomacy.systemMessage]);
+            setMessages(prev => [...prev, diplomacy.systemMessage!]);
             setCountries(prev => {
                 const newCountries = { ...prev };
                 Object.keys(diplomacy.countryUpdates).forEach(id => {
@@ -160,6 +241,7 @@ export const App = () => {
         turnCounter.current++;
         const newMessage: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: 'observer', text, timestamp: Date.now() };
         addMessage(newMessage);
+        setObserverMessageCount(prev => prev + 1);
         
         const messageHistory = [...messages, newMessage];
         if (activeChat.type === 'private') {
@@ -167,6 +249,76 @@ export const App = () => {
         } else if (activeChat.type === 'group' || activeChat.type === 'summit') {
             addMessagesWithDelay(generatePublicResponse(newMessage, activeChat, aiIntensity, countries, messageHistory, turnCounter.current));
         }
+    };
+
+    const handleAutonomousAiAction = () => {
+        setTimeout(() => {
+            const actingCountry = (() => {
+                const tiers: Record<number, Country[]> = { 1: [], 2: [], 3: [] };
+                Object.values(countries).forEach(c => c.persona && tiers[c.tier].push(c));
+                const rand = Math.random();
+                if (rand < 0.6 && tiers[1].length > 0) return tiers[1][Math.floor(Math.random() * tiers[1].length)];
+                if (rand < 0.9 && tiers[2].length > 0) return tiers[2][Math.floor(Math.random() * tiers[2].length)];
+                if (tiers[3].length > 0) return tiers[3][Math.floor(Math.random() * tiers[3].length)];
+                return Object.values(countries).find(c => c.persona)!;
+            })();
+
+            const action = generateAutonomousAction(actingCountry, countries, chats, turnCounter.current);
+            if (!action) return;
+
+            if (action.type === 'public_message') {
+                const message: Message = {
+                    id: messageIdCounter.current++,
+                    chatId: action.payload.chatId,
+                    senderId: actingCountry.id,
+                    text: action.payload.text,
+                    timestamp: Date.now()
+                };
+                addMessage(message);
+                const chatContext = chats.find(c => c.id === action.payload.chatId)!;
+                addMessagesWithDelay(generatePublicResponse(message, chatContext, aiIntensity, countries, [...messages, message], turnCounter.current));
+            } else if (action.type === 'start_private_chat') {
+                const { participants, initialMessage } = action.payload;
+                const sortedIds = participants.sort();
+                const chatId = `private_${sortedIds.join('_')}`;
+
+                if (chats.some(c => c.id === chatId)) return;
+                
+                const countryA = countries[participants[0]];
+                const countryB = countries[participants[1]];
+
+                const newChat: Chat = {
+                    id: chatId,
+                    name: `🤝 ${countryA.name} & ${countryB.name}`,
+                    type: 'private',
+                    participants: sortedIds,
+                };
+
+                const systemAnnouncement: Message = {
+                    id: messageIdCounter.current++,
+                    chatId: 'global',
+                    senderId: 'system',
+                    text: `System Notification: ${countryA.avatar} ${countryA.name} and ${countryB.avatar} ${countryB.name} have opened a private channel.`,
+                    timestamp: Date.now(),
+                };
+                addMessage(systemAnnouncement);
+
+                setChats(prev => [newChat, ...prev]);
+
+                const firstMessage: Message = {
+                    id: messageIdCounter.current++,
+                    chatId: chatId,
+                    senderId: actingCountry.id,
+                    text: initialMessage,
+                    timestamp: Date.now() + 100,
+                };
+                addMessage(firstMessage);
+                
+                const response = generatePrivateResponse(firstMessage, newChat, countries, [firstMessage]);
+                setTimeout(() => addMessage(response), 1000);
+            }
+
+        }, 2000 + Math.random() * 2000);
     };
 
     const handlePostNewsEvent = (newsItem: NewsItem) => {
@@ -198,6 +350,15 @@ export const App = () => {
             participants: ['observer', ...participants],
         };
         setChats(prev => [newChat, ...prev]);
+        
+        setCountries(prev => {
+            const newCountries = {...prev};
+            const hostId = newChat.participants[1]; // Assume first selected is host
+            if(newCountries[hostId]) {
+                newCountries[hostId].domesticSupport = Math.min(100, (newCountries[hostId].domesticSupport || 50) + 10);
+            }
+            return newCountries;
+        });
 
         const announcement: Message = {
             id: messageIdCounter.current++,
@@ -233,7 +394,7 @@ export const App = () => {
     };
 
     const handleStartPrivateChat = (countryId: string) => {
-        const privateChatId = `private_${countryId}`;
+        const privateChatId = `private_observer_${countryId}`;
         const existingChat = chats.find(c => c.id === privateChatId);
         if (existingChat) {
             handleSelectChat(existingChat.id);

@@ -1,3 +1,5 @@
+// Fix: Removed the import of `Persona` from './personas' to break a circular dependency.
+// The `Persona` interface is defined and exported from this file, making it the source of truth.
 export interface Persona {
     national_identity: {
         theme: string;
@@ -49,6 +51,10 @@ export interface Country {
     newYear: string;
     language: string;
     ethnic_groups: string[];
+    population: string;
+    economicStability: number;
+    domesticSupport: number;
+    militaryAlertLevel: number;
     privateConsensus?: Array<{
         with: string[],
         topic: string,
