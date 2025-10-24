@@ -191,7 +191,9 @@ export const BREAKING_NEWS_OPTIONS: NewsItem[] = [
     { id: 'news_1', title: 'Breakthrough in Fusion Energy Hailed as "New Dawn"', snippet: 'Scientists at a joint international lab have announced a sustained fusion reaction, producing net positive energy for the first time. The development could revolutionize the energy sector and climate change efforts.', source: 'Global Science Times' },
     { id: 'news_2', title: 'Central Banks Announce Coordinated Digital Currency Initiative', snippet: 'A consortium of the world\'s largest central banks is launching a pilot program for a cross-border digital currency, aiming to streamline international trade and challenge the dominance of existing systems.', source: 'Financial World News' },
     { id: 'news_3', title: 'Asteroid Mining Treaty Negotiations Begin at UN', snippet: 'Delegates from over 50 nations have gathered to draft a legal framework for the exploitation of resources from asteroids and other celestial bodies, a topic of growing economic and strategic importance.', source: 'Interplanetary Chronicle' },
-    { id: 'news_4', title: 'Global Supply Chains Face Disruption from New Shipping Regulations', snippet: 'Strict new environmental regulations for maritime shipping are set to take effect, with experts predicting significant short-term disruptions and increased costs for international trade as carriers adapt.', source: 'Trade Winds Daily' }
+    { id: 'news_4', title: 'Global Supply Chains Face Disruption from New Shipping Regulations', snippet: 'Strict new environmental regulations for maritime shipping are set to take effect, with experts predicting significant short-term disruptions and increased costs for international trade as carriers adapt.', source: 'Trade Winds Daily' },
+    { id: 'news_5', title: 'Major Undersea Data Cable Severed in Disputed Waters', snippet: 'A critical fiber optic cable connecting two continents has been mysteriously cut, leading to widespread internet outages and accusations of state-sponsored sabotage. Naval assets are being deployed to the area.', source: 'Network Security Today' },
+    { id: 'news_6', title: 'Drought Leads to Unprecedented Global Grain Shortage', snippet: 'Severe droughts in several key breadbasket nations have caused a critical shortage in the global grain supply. Food prices are skyrocketing, and humanitarian organizations are warning of an impending famine in vulnerable regions.', source: 'World Food Program Report' }
 ];
 
 export const EVENT_KNOWLEDGE_BASE: NewsItem[] = [
@@ -201,10 +203,18 @@ export const EVENT_KNOWLEDGE_BASE: NewsItem[] = [
     { id: 'kb_4', title: 'Contention over "Green Hydrogen" Standards', snippet: 'As nations rush to develop green hydrogen, a major diplomatic disagreement is brewing over what constitutes "green." Export-focused nations with vast renewables (like Chile, Australia) are pushing for looser standards than import-focused industrial blocs (like the EU).', source: 'Renewable Future Magazine', tags: ['economy', 'climate', 'energy', 'technology'], involved_countries: ['DEU', 'AUS', 'CHL', 'JPN', 'SAU'] }
 ];
 
+export const RANDOM_EVENT_TEMPLATES: NewsItem[] = [
+    { id: 'rand_1', title: '[COUNTRY_A] Announces Major Breakthrough in AI-Powered Drug Discovery', snippet: 'The national research institute of [COUNTRY_A] has unveiled a new AI platform that dramatically accelerates the creation of new medicines, potentially shifting the balance of power in the global pharmaceutical industry.', source: 'Simulated News Network', isFabricated: true },
+    { id: 'rand_2', title: 'Severe Epidemic Breaks Out in [REGION], Borders Sealed', snippet: 'An unknown and highly contagious virus has been reported in the [REGION] region, prompting neighboring countries like [COUNTRY_A] and [COUNTRY_B] to close their borders and halt all travel, causing regional chaos.', source: 'Simulated News Network', isFabricated: true },
+    { id: 'rand_3', title: 'Massive Cyberattack Cripples Global Financial Markets', snippet: 'A sophisticated cyberattack of unknown origin has targeted major stock exchanges and banking systems worldwide. Trading has been halted as powers like [COUNTRY_A] and [COUNTRY_B] accuse each other of digital warfare.', source: 'Simulated News Network', isFabricated: true },
+    { id: 'rand_4', title: 'Discovery of Massive Rare Earth Mineral Deposit in [COUNTRY_A]', snippet: 'Geologists in [COUNTRY_A] have confirmed the discovery of one of the world\'s largest untapped reserves of rare earth minerals, critical for modern technology. The find could challenge [COUNTRY_B]\'s long-standing dominance in the strategic sector.', source: 'Simulated News Network', isFabricated: true }
+];
+
 export const TRANSLATIONS = {
     en: {
         chats: 'Chats',
         directory: 'Directory',
+        worldStatus: 'World Status',
         motto: 'Motto',
         language: 'Language',
         ethnicGroups: 'Ethnic Groups',
@@ -215,11 +225,13 @@ export const TRANSLATIONS = {
         theme: 'Theme',
         scale: 'AI Chat Intensity',
         intensity: { simple: 'Simple', medium: 'Medium', high: 'High', intense: 'Intense' },
+        dynamicEvents: 'Dynamic World Events',
         close: 'Close',
     },
     zh: {
         chats: '聊天',
         directory: '通讯录',
+        worldStatus: '世界态势',
         motto: '格言',
         language: '语言',
         ethnicGroups: '主要族群',
@@ -230,6 +242,7 @@ export const TRANSLATIONS = {
         theme: '主题',
         scale: 'AI聊天激烈程度',
         intensity: { simple: '简单', medium: '中等', high: '高度', intense: '激烈' },
+        dynamicEvents: '动态世界事件',
         close: '关闭',
     },
 };

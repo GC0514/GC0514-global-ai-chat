@@ -256,6 +256,15 @@
 
         .message { display: flex; gap: 1rem; max-width: 80%; }
         .message.observer { align-self: flex-end; flex-direction: row-reverse; }
+        
+        .message.system-message {
+            align-self: center;
+            width: 100%;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
         .message.news-flash {
             align-self: center;
             background-color: var(--background-hover);
@@ -267,6 +276,10 @@
             text-align: left;
             flex-direction: column;
             gap: 0.5rem;
+        }
+        .message.news-flash.fabricated h4 {
+            color: var(--notification-background);
+            opacity: 0.8;
         }
         .news-flash-content {
             width: 100%;
@@ -288,6 +301,27 @@
             font-size: 1.5rem;
             line-height: 1;
         }
+        
+        .message.intel-leak {
+             align-self: center;
+             width: 100%;
+             max-width: 90%;
+             border: 1px dashed var(--notification-background);
+             padding: 1rem;
+             border-radius: var(--border-radius-subtle);
+             background-image: repeating-linear-gradient(
+                -45deg,
+                rgba(255, 77, 109, 0.05),
+                rgba(255, 77, 109, 0.05) 10px,
+                transparent 10px,
+                transparent 20px
+              );
+        }
+        .message.intel-leak .message-sender {
+            color: var(--notification-background);
+            font-style: italic;
+        }
+
 
         .message-avatar { font-size: 2rem; flex-shrink: 0; line-height: 1; }
         .message-content { display: flex; flex-direction: column; gap: 0.25rem; }
@@ -360,7 +394,7 @@
         .profile-details dd { color: var(--text-secondary); }
 
         .modal-actions { display: flex; justify-content: space-between; gap: 0.75rem; margin-top: 1.5rem; }
-        .modal-button { padding: 0.75rem 1.5rem; border-radius: var(--border-radius-subtle); border: none; font-weight: 600; font-size: 1rem; cursor: pointer; transition: filter 0.2s; }
+        .modal-button { padding: 0.75rem 1.5rem; border-radius: var(--border-radius-subtle); border: none; font-weight: 600; font-size: 1rem; cursor: pointer; transition: filter 0.2s; flex-grow: 1; }
         .modal-button:disabled { background-color: var(--background-hover); cursor: not-allowed; opacity: 0.5; }
         .modal-button.primary { background-color: var(--accent-primary); color: white; }
         .modal-button.primary:hover { filter: brightness(1.1); }

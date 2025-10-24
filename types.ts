@@ -49,21 +49,28 @@ export interface Country {
     newYear: string;
     language: string;
     ethnic_groups: string[];
+    privateConsensus?: Array<{
+        with: string[],
+        topic: string,
+        stance: string,
+        turnExpires: number,
+    }>;
 }
 
 export interface Message {
     id: number;
     chatId: string;
-    senderId: string;
+    senderId: 'observer' | 'news_flash' | 'intel_leak' | 'system' | string; // Can be country ID or special sender
     title?: string;
     text: string;
     timestamp: number;
+    isFabricated?: boolean;
 }
 
 export interface Chat {
     id: string;
     name: string;
-    type: 'group' | 'private';
+    type: 'group' | 'private' | 'summit';
     participants: string[];
 }
 
@@ -76,4 +83,5 @@ export interface NewsItem {
     source: string;
     tags?: string[];
     involved_countries?: string[];
+    isFabricated?: boolean;
 }
