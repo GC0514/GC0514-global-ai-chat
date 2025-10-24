@@ -214,7 +214,6 @@ export const TRANSLATIONS = {
     en: {
         chats: 'Chats',
         directory: 'Directory',
-        worldStatus: 'World Status',
         motto: 'Motto',
         language: 'Language',
         ethnicGroups: 'Ethnic Groups',
@@ -225,13 +224,11 @@ export const TRANSLATIONS = {
         theme: 'Theme',
         scale: 'AI Chat Intensity',
         intensity: { simple: 'Simple', medium: 'Medium', high: 'High', intense: 'Intense' },
-        dynamicEvents: 'Dynamic World Events',
         close: 'Close',
     },
     zh: {
         chats: '聊天',
         directory: '通讯录',
-        worldStatus: '世界态势',
         motto: '格言',
         language: '语言',
         ethnicGroups: '主要族群',
@@ -242,7 +239,6 @@ export const TRANSLATIONS = {
         theme: '主题',
         scale: 'AI聊天激烈程度',
         intensity: { simple: '简单', medium: '中等', high: '高度', intense: '激烈' },
-        dynamicEvents: '动态世界事件',
         close: '关闭',
     },
 };

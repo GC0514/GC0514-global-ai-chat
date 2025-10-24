@@ -1,10 +1,11 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message, AiIntensity, Country, NewsItem, Persona } from './types';
 import { RAW_COUNTRIES, EVENT_KNOWLEDGE_BASE, BREAKING_NEWS_OPTIONS, TRANSLATIONS, G7_MEMBERS, BRICS_MEMBERS, SCO_MEMBERS, NATO_MEMBERS, EU_MEMBERS, AU_MEMBERS, ARAB_LEAGUE_MEMBERS, GCC_MEMBERS, RANDOM_EVENT_TEMPLATES } from './data';
 import { generatePublicResponse, generatePrivateResponse, evaluateAndGetRelationshipUpdates, generateInitialGoals, generateSecretDiplomacy } from './ai';
 import { playNotificationSound } from './utils';
-import { Header, NavColumn, ListViewColumn, ChatWindow, CountryProfileModal, SettingsModal, NewsEventModal, WorldStatusDashboard, HostSummitModal, LeakIntelModal } from './components';
+import { Header, NavColumn, ListViewColumn, ChatWindow, CountryProfileModal, SettingsModal, HostSummitModal, LeakIntelModal } from './components';
 
 const initializeAppState = () => {
     const processedCountries: Record<string, any> = {};
@@ -74,15 +75,13 @@ export const App = () => {
     const [activeChatId, setActiveChatId] = useState<string | null>('global');
     const [messages, setMessages] = useState<Message[]>(initialState.messages);
     const [modalCountry, setModalCountry] = useState<Country | null>(null);
-    const [activeView, setActiveView] = useState<'chats' | 'directory' | 'worldStatus'>('chats');
+    const [activeView, setActiveView] = useState<'chats' | 'directory'>('chats');
     const [isSettingsOpen, setSettingsOpen] = useState(false);
-    const [isNewsModalOpen, setNewsModalOpen] = useState(false);
     const [isSummitModalOpen, setSummitModalOpen] = useState(false);
     const [isIntelModalOpen, setIntelModalOpen] = useState(false);
     const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-    const [language, setLanguage] = useState<'en' | 'zh'>('en');
+    const [language, setLanguage] = useState<'en' | 'zh'>('zh');
     const [aiIntensity, setAiIntensity] = useState<AiIntensity>('medium');
-    const [isDynamicEventsEnabled, setDynamicEventsEnabled] = useState(false);
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
     
     const messageIdCounter = useRef(initialState.messages.length + 1);
@@ -103,14 +102,6 @@ export const App = () => {
             setUnreadCounts(prev => ({ ...prev, [lastMessage.chatId]: (prev[lastMessage.chatId] || 0) + 1 }));
         }
     }, [messages]);
-
-    useEffect(() => {
-        if (!isDynamicEventsEnabled) return;
-        const interval = setInterval(() => {
-            handlePostDynamicEvent();
-        }, 10 * 60 * 1000); // Every 10 minutes
-        return () => clearInterval(interval);
-    }, [isDynamicEventsEnabled]);
 
     const handleRelationshipUpdates = (message: Message, chat: Chat) => {
         const updates = evaluateAndGetRelationshipUpdates(message, chat, countries);
@@ -182,39 +173,20 @@ export const App = () => {
         const globalChat = chats.find(c => c.id === 'global');
         if (!globalChat) return;
         turnCounter.current++;
-        const newsMessage: Message = { id: messageIdCounter.current++, chatId: 'global', senderId: 'news_flash', title: newsItem.title, text: newsItem.snippet, timestamp: Date.now() };
+        const newsMessage: Message = { 
+            id: messageIdCounter.current++, 
+            chatId: 'global', 
+            senderId: 'news_flash', 
+            title: newsItem.title, 
+            text: newsItem.snippet, 
+            timestamp: Date.now(),
+            isFabricated: newsItem.isFabricated,
+        };
         addMessage(newsMessage);
-        setNewsModalOpen(false);
         
         const messageHistory = [...messages, newsMessage];
-        addMessagesWithDelay(generatePublicResponse(newsMessage, globalChat, aiIntensity, countries, messageHistory, turnCounter.current));
-    };
-
-    const handlePostDynamicEvent = () => {
-        const globalChat = chats.find(c => c.id === 'global');
-        if (!globalChat) return;
-
-        const template = RANDOM_EVENT_TEMPLATES[Math.floor(Math.random() * RANDOM_EVENT_TEMPLATES.length)];
-        const involvedCountries = Object.values(countries).sort(() => 0.5 - Math.random()).slice(0, 2);
-        const region = involvedCountries[0].continent;
-
-        let title = template.title.replace('[COUNTRY_A]', involvedCountries[0].name).replace('[COUNTRY_B]', involvedCountries[1].name).replace('[REGION]', region);
-        let snippet = template.snippet.replace('[COUNTRY_A]', involvedCountries[0].name).replace('[COUNTRY_B]', involvedCountries[1].name).replace('[REGION]', region);
-
-        turnCounter.current++;
-        const eventMessage: Message = {
-            id: messageIdCounter.current++,
-            chatId: 'global',
-            senderId: 'news_flash',
-            title,
-            text: snippet,
-            timestamp: Date.now(),
-            isFabricated: true,
-        };
-        addMessage(eventMessage);
-        
-        const messageHistory = [...messages, eventMessage];
-        addMessagesWithDelay(generatePublicResponse(eventMessage, globalChat, 'high', countries, messageHistory, turnCounter.current));
+        const intensity = newsItem.isFabricated ? 'high' : aiIntensity;
+        addMessagesWithDelay(generatePublicResponse(newsMessage, globalChat, intensity, countries, messageHistory, turnCounter.current));
     };
 
     const handleHostSummit = (theme: string, participants: string[]) => {
@@ -299,18 +271,6 @@ export const App = () => {
         });
     };
 
-    if (activeView === 'worldStatus') {
-        return (
-            <>
-                <Header onSettingsClick={() => setSettingsOpen(true)} />
-                <NavColumn activeView={activeView} onSelectView={setActiveView} t={t} />
-                <WorldStatusDashboard countries={countries} onSelectCountry={(id) => { setModalCountry(countries[id]); setActiveView('directory'); }} />
-                {modalCountry && <CountryProfileModal country={modalCountry} onClose={() => setModalCountry(null)} onStartChat={() => handleStartPrivateChat(modalCountry.id)} t={t} />}
-                {isSettingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} theme={theme} onThemeChange={setTheme} language={language} onLanguageChange={setLanguage} intensity={aiIntensity} onIntensityChange={setAiIntensity} isDynamicEventsEnabled={isDynamicEventsEnabled} onDynamicEventsToggle={setDynamicEventsEnabled} t={t} />}
-            </>
-        );
-    }
-    
     return (
         <>
             <Header onSettingsClick={() => setSettingsOpen(true)} />
@@ -323,13 +283,14 @@ export const App = () => {
             />
             <ChatWindow
                 key={activeChatId} chat={activeChat} countries={countries}
-                messages={activeChat ? messages.filter(m => m.chatId === activeChatId) : []}
-                onSendMessage={handleSendMessage} onOpenNewsModal={() => setNewsModalOpen(true)}
-                onOpenSummitModal={() => setSummitModalOpen(true)} onOpenIntelModal={() => setIntelModalOpen(true)}
+                messages={messages}
+                onSendMessage={handleSendMessage} 
+                onPostNewsEvent={handlePostNewsEvent}
+                onOpenSummitModal={() => setSummitModalOpen(true)} 
+                onOpenIntelModal={() => setIntelModalOpen(true)}
             />
             {modalCountry && <CountryProfileModal country={modalCountry} onClose={() => setModalCountry(null)} onStartChat={() => handleStartPrivateChat(modalCountry.id)} t={t} />}
-            {isSettingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} theme={theme} onThemeChange={setTheme} language={language} onLanguageChange={setLanguage} intensity={aiIntensity} onIntensityChange={setAiIntensity} isDynamicEventsEnabled={isDynamicEventsEnabled} onDynamicEventsToggle={setDynamicEventsEnabled} t={t} />}
-            {isNewsModalOpen && <NewsEventModal onClose={() => setNewsModalOpen(false)} onPostEvent={handlePostNewsEvent} />}
+            {isSettingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} theme={theme} onThemeChange={setTheme} language={language} onLanguageChange={setLanguage} intensity={aiIntensity} onIntensityChange={setAiIntensity} t={t} />}
             {isSummitModalOpen && <HostSummitModal countries={countries} onClose={() => setSummitModalOpen(false)} onHost={handleHostSummit} />}
             {isIntelModalOpen && <LeakIntelModal onClose={() => setIntelModalOpen(false)} onLeak={handleLeakIntel} />}
         </>

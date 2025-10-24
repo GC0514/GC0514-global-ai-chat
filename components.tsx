@@ -1,7 +1,8 @@
 
+
 import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { Country, Message, Chat, AiIntensity, NewsItem } from './types';
-import { BREAKING_NEWS_OPTIONS } from './data';
+import { BREAKING_NEWS_OPTIONS, RANDOM_EVENT_TEMPLATES } from './data';
 
 // --- CHILD COMPONENTS ---
 
@@ -22,15 +23,9 @@ export const NavColumn = ({ activeView, onSelectView, t }) => (
             <span className="icon">🌐</span>
             <span className="label">{t.directory}</span>
         </div>
-        <div className={`nav-item ${activeView === 'worldStatus' ? 'active' : ''}`} onClick={() => onSelectView('worldStatus')}>
-            <span className="icon">🌍</span>
-            <span className="label">{t.worldStatus}</span>
-        </div>
     </nav>
 );
 
-// ... (ListViewColumn remains the same)
-// FIX: Added props interface for ListViewColumn to resolve typing errors.
 interface ListViewColumnProps {
     activeView: 'chats' | 'directory';
     chats: Chat[];
@@ -155,7 +150,6 @@ export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chat
     );
 }
 
-
 const SpecialActionsMenu = ({ onOpenSummitModal, onOpenIntelModal, onClose }) => {
     const menuRef = useRef(null);
 
@@ -177,16 +171,82 @@ const SpecialActionsMenu = ({ onOpenSummitModal, onOpenIntelModal, onClose }) =>
     );
 };
 
-export const ChatWindow = ({ chat, countries, messages, onSendMessage, onOpenNewsModal, onOpenSummitModal, onOpenIntelModal }) => {
+const generateFakeNewsOptions = (countries: Country[], count = 3): NewsItem[] => {
+    const options: NewsItem[] = [];
+    for (let i = 0; i < count; i++) {
+        const template = RANDOM_EVENT_TEMPLATES[Math.floor(Math.random() * RANDOM_EVENT_TEMPLATES.length)];
+        const involvedCountries = [...countries].sort(() => 0.5 - Math.random()).slice(0, 2);
+        const region = involvedCountries[0].continent;
+
+        let title = template.title.replace('[COUNTRY_A]', involvedCountries[0].name).replace('[COUNTRY_B]', involvedCountries[1].name).replace('[REGION]', region);
+        let snippet = template.snippet.replace('[COUNTRY_A]', involvedCountries[0].name).replace('[COUNTRY_B]', involvedCountries[1].name).replace('[REGION]', region);
+
+        options.push({
+            id: `fake_${Date.now()}_${i}`,
+            title,
+            snippet,
+            source: template.source,
+            isFabricated: true,
+        });
+    }
+    return options;
+};
+
+const NewsPicker = ({ type, countries, onSelect, onClose }) => {
+    const pickerRef = useRef(null);
+    const [newsOptions, setNewsOptions] = useState<NewsItem[]>([]);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (pickerRef.current && !pickerRef.current.contains(event.target)) {
+                onClose();
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [onClose]);
+
+    useEffect(() => {
+        if (type === 'real') {
+            setNewsOptions(BREAKING_NEWS_OPTIONS);
+        } else {
+            setNewsOptions(generateFakeNewsOptions(countries));
+        }
+    }, [type, countries]);
+
+    const today = new Date().toLocaleDateString(undefined, {
+        year: 'numeric', month: 'long', day: 'numeric'
+    });
+
+    return (
+        <div className="news-picker" ref={pickerRef}>
+            <div className="news-picker-header">{today}</div>
+            <ul className="news-picker-list">
+                {newsOptions.map(item => (
+                    <li key={item.id} className={`news-picker-item ${item.isFabricated ? 'fabricated' : ''}`} onClick={() => onSelect(item)}>
+                        <h4>{item.isFabricated && '💣 '}{item.title}</h4>
+                        <p>{item.snippet}</p>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+export const ChatWindow = ({ chat, countries, messages: allMessages, onSendMessage, onPostNewsEvent, onOpenSummitModal, onOpenIntelModal }) => {
     const messageListRef = useRef<HTMLDivElement>(null);
     const [inputValue, setInputValue] = useState('');
     const [isEmojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [isActionsMenuOpen, setActionsMenuOpen] = useState(false);
+    const [newsPickerState, setNewsPickerState] = useState<{ isOpen: boolean; type: 'real' | 'fake' }>({ isOpen: false, type: 'real' });
+    
+    const newsFlashes = allMessages.filter(m => m.senderId === 'news_flash').sort((a, b) => b.timestamp - a.timestamp);
+    const currentChatMessages = chat ? allMessages.filter(m => m.chatId === chat.id) : [];
 
     useLayoutEffect(() => {
         const el = messageListRef.current;
-        if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-    }, [messages, chat]);
+        if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+    }, [currentChatMessages, chat]);
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -204,17 +264,44 @@ export const ChatWindow = ({ chat, countries, messages, onSendMessage, onOpenNew
     return (
         <main className="chat-window frosted-panel">
             <header className="chat-header">{chat.name}</header>
+            {newsFlashes.length > 0 && (
+                <div className="news-ticker-container">
+                    {newsFlashes.map(flash => (
+                        <div key={flash.id} className="news-ticker-item" title={flash.text}>
+                            <span className="icon">{flash.isFabricated ? '💣' : '📰'}</span>
+                            <span className="time">{new Date(flash.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="title">{flash.title}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
             <div className="message-list" ref={messageListRef}>
-                {messages.map(msg => <MessageComponent key={msg.id} message={msg} countries={countries} />)}
+                {currentChatMessages.map(msg => <MessageComponent key={msg.id} message={msg} countries={countries} />)}
             </div>
             <div className="message-input-area">
                 {isEmojiPickerOpen && <div className="emoji-picker">{EMOJIS.map(emoji => <span key={emoji} onClick={() => setInputValue(p => p + emoji)}>{emoji}</span>)}</div>}
                 {isActionsMenuOpen && <SpecialActionsMenu onOpenSummitModal={onOpenSummitModal} onOpenIntelModal={onOpenIntelModal} onClose={() => setActionsMenuOpen(false)} />}
+                {newsPickerState.isOpen && (
+                    <NewsPicker
+                        type={newsPickerState.type}
+                        countries={Object.values(countries)}
+                        onSelect={(newsItem) => {
+                            onPostNewsEvent(newsItem);
+                            setNewsPickerState({ isOpen: false, type: 'real' });
+                        }}
+                        onClose={() => setNewsPickerState({ isOpen: false, type: 'real' })}
+                    />
+                )}
                 
                 <div className="input-toolbar">
                     <button className="toolbar-button" onClick={() => setEmojiPickerOpen(o => !o)}>😊</button>
                     <button className="toolbar-button" onClick={() => setActionsMenuOpen(o => !o)} title="Special Actions">⚡️</button>
-                    {chat.id === 'global' && <button className="toolbar-button" onClick={onOpenNewsModal} title="Post Global News">📰</button>}
+                    {chat.id === 'global' && (
+                        <>
+                            <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'real' })} title="Post Real News Event">📰</button>
+                            <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'fake' })} title="Post Fabricated News Event">💣</button>
+                        </>
+                    )}
                 </div>
                 <form className="message-input-form" onSubmit={handleSubmit}>
                     <textarea value={inputValue} onChange={e => setInputValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e as any); } }} className="message-input" placeholder="Type your message as an Observer..." rows={1} />
@@ -292,7 +379,7 @@ export const CountryProfileModal = ({ country, onClose, onStartChat, t }) => (
     </div>
 );
 
-export const SettingsModal = ({ onClose, theme, onThemeChange, language, onLanguageChange, intensity, onIntensityChange, isDynamicEventsEnabled, onDynamicEventsToggle, t }) => (
+export const SettingsModal = ({ onClose, theme, onThemeChange, language, onLanguageChange, intensity, onIntensityChange, t }) => (
     <div className="modal-overlay settings-modal" onClick={onClose}>
         <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3 className="modal-name">{t.settings}</h3>
@@ -309,13 +396,6 @@ export const SettingsModal = ({ onClose, theme, onThemeChange, language, onLangu
                     <option value="en">English</option>
                     <option value="zh">中文</option>
                 </select>
-            </div>
-             <div className="setting-item">
-                <span className="setting-label">{t.dynamicEvents}</span>
-                <label className="toggle-switch">
-                    <input type="checkbox" checked={isDynamicEventsEnabled} onChange={() => onDynamicEventsToggle(!isDynamicEventsEnabled)} />
-                    <span className="slider"></span>
-                </label>
             </div>
             <div className="setting-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.75rem' }}>
                 <span className="setting-label">{t.scale}</span>
@@ -334,104 +414,6 @@ export const SettingsModal = ({ onClose, theme, onThemeChange, language, onLangu
     </div>
 );
 
-export const NewsEventModal = ({ onClose, onPostEvent }) => {
-    const [isLoading, setIsLoading] = useState(true);
-    const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
-    const [selectedNewsId, setSelectedNewsId] = useState<string | null>(null);
-
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setNewsItems(BREAKING_NEWS_OPTIONS); setIsLoading(false);
-        }, 1500);
-        return () => clearTimeout(timer);
-    }, []);
-
-    const handlePost = () => {
-        if (selectedNewsId) {
-            const selectedNews = newsItems.find(item => item.id === selectedNewsId);
-            if (selectedNews) onPostEvent(selectedNews);
-        }
-    };
-
-    return (
-        <div className="modal-overlay news-modal" onClick={onClose}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                <h3 className="modal-name">Select a News Event</h3>
-                {isLoading ? <div className="loading-news"><p>Fetching hot topics...</p></div> : (
-                    <ul className="news-list">
-                        {newsItems.map(item => (
-                            <li key={item.id} className={`news-item ${selectedNewsId === item.id ? 'selected' : ''}`} onClick={() => setSelectedNewsId(item.id)}>
-                                <h4>{item.title}</h4>
-                                <p>{item.snippet}</p>
-                                <div className="source">Source: {item.source}</div>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-                <div className="modal-actions" style={{ justifyContent: 'flex-end' }}>
-                     <button className="modal-button secondary" onClick={onClose}>Cancel</button>
-                    <button className="modal-button primary" onClick={handlePost} disabled={!selectedNewsId || isLoading}>Post Event</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// FIX: Added props interface for WorldStatusDashboard to resolve typing errors.
-interface WorldStatusDashboardProps {
-    countries: Record<string, Country>;
-    onSelectCountry: (id: string) => void;
-}
-export const WorldStatusDashboard: React.FC<WorldStatusDashboardProps> = ({ countries, onSelectCountry }) => {
-    // A simplified representation. In a real app, you'd use a proper mapping library.
-    const countryPositions = { USA: { x: 15, y: 30 }, CHN: { x: 70, y: 35 }, RUS: { x: 55, y: 20 }, GBR: { x: 45, y: 25 }, IND: { x: 65, y: 45 }, BRA: { x: 30, y: 65 }, ZAF: { x: 50, y: 80 }, AUS: { x: 85, y: 75 } };
-    const tier1Countries = Object.values(countries).filter(c => c.tier === 1);
-
-    const getRelationshipLines = () => {
-        const lines = [];
-        for (let i = 0; i < tier1Countries.length; i++) {
-            for (let j = i + 1; j < tier1Countries.length; j++) {
-                const c1 = tier1Countries[i];
-                const c2 = tier1Countries[j];
-                const pos1 = countryPositions[c1.id];
-                const pos2 = countryPositions[c2.id];
-                
-                if (pos1 && pos2) {
-                    const relation = c1.relationships[c2.id];
-                    const combinedScore = (relation?.strategicAlignment || 0) + (relation?.currentStanding || 0);
-                    let stroke = 'var(--text-secondary)';
-                    if (combinedScore > 3) stroke = 'var(--accent-secondary)';
-                    if (combinedScore < -3) stroke = 'var(--notification-background)';
-                    const strokeWidth = 1 + Math.abs(combinedScore) / 5;
-                    
-                    lines.push(<line key={`${c1.id}-${c2.id}`} x1={`${pos1.x}%`} y1={`${pos1.y}%`} x2={`${pos2.x}%`} y2={`${pos2.y}%`} stroke={stroke} strokeWidth={strokeWidth} />);
-                }
-            }
-        }
-        return lines;
-    };
-    
-    return (
-        <main className="chat-window frosted-panel" style={{ gridColumn: '2 / 4', padding: '1rem' }}>
-            <h3 style={{ textAlign: 'center', marginBottom: '1rem' }}>World Status Dashboard (Tier 1 Powers)</h3>
-            <svg width="100%" height="90%" viewBox="0 0 100 100" style={{ backgroundImage: `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500"><path d="M500 250 L... (path for a simple world map)" fill="%232c3e50"/></svg>')`, backgroundSize: 'contain', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}>
-                {getRelationshipLines()}
-                {tier1Countries.map(c => {
-                    const pos = countryPositions[c.id];
-                    return pos ? (
-                        <g key={c.id} transform={`translate(${pos.x}, ${pos.y})`} onClick={() => onSelectCountry(c.id)} style={{ cursor: 'pointer' }}>
-                            <circle r="2" fill="var(--accent-primary)" />
-                            <text y="-3" textAnchor="middle" fill="var(--text-primary)" fontSize="2">{c.avatar}</text>
-                            <title>{c.name}</title>
-                        </g>
-                    ) : null;
-                })}
-            </svg>
-        </main>
-    );
-};
-
-// FIX: Added props interface for HostSummitModal to resolve typing errors.
 interface HostSummitModalProps {
     countries: Record<string, Country>;
     onClose: () => void;
