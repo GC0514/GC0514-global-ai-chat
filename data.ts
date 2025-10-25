@@ -1,5 +1,4 @@
-// Fix: Removed `RawCountryData` from this import because it is defined locally in this file.
-import { NewsItem, Persona } from './types';
+import { NewsItem, Persona } from './src/types/index';
 import * as Personas from './personas';
 
 export type RawCountryData = {

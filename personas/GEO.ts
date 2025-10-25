@@ -1,4 +1,4 @@
-import { Persona } from '../types';
+import { Persona } from '../src/types/index';
 
 export const GEO_PERSONA: Persona = {
     national_identity: {

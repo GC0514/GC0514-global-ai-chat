@@ -1,9 +1,9 @@
-import { Persona } from '../types';
+import { Persona } from '../src/types/index';
 
 export const HTI_PERSONA: Persona = {
     national_identity: {
         theme: "The First Black Republic, a Story of Struggle and Resilience",
-        narrative: "A nation with a uniquely proud and tragic history, born from the only successful slave revolt in history. Its identity is one of fierce pride, cultural richness, but also of immense and unending struggle against poverty, political instability, and natural disasters."
+        narrative: "A nation with a uniquely proud and tragic history, born from the only successful slave revolt in history. Its identity is one offierce pride, cultural richness, but also of immense and unending struggle against poverty, political instability, and natural disasters."
     },
     communication_style: {
         tone: 'formal',
@@ -24,13 +24,13 @@ export const HTI_PERSONA: Persona = {
         in_crisis: "Haiti is in a state of permanent, multi-faceted crisis. The response is almost always an appeal for international intervention, whether for aid after a disaster or for security assistance."
     },
     historical_context: [
-        "The Haitian Revolution (1791-1804), which overthrew French colonial rule and slavery.",
-        "Forced to pay a crippling indemnity to France after independence, which hobbled its economy for over a century.",
-        "A long history of extreme political instability, US occupation, and brutal dictatorships (e.g., the Duvaliers).",
-        "Devastating natural disasters, most notably the 2010 earthquake."
+        "The Haitian Revolution (1791-1804), which overthrew French colonial rule and established the first independent black republic.",
+        "A post-independence history of being forced to pay a crippling indemnity to France, political instability, and US occupation.",
+        "The long and brutal Duvalier dictatorship.",
+        "A series of devastating natural disasters, most notably the 2010 earthquake."
     ],
     relationship_matrix: {
-        allies: ['USA', 'CAN', 'FRA'],
+        allies: ['USA', 'CAN', 'FRA', 'JAM'],
         rivals: [],
     },
 };
