@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { Message, Chat, AiIntensity, Country, Persona, NewsItem } from '../types';
+import * as Personas from '../../personas';
 
 // --- Gemini AI Engine (New) ---
 let ai: GoogleGenAI;
@@ -11,18 +12,29 @@ const getAi = () => {
     return ai;
 };
 
+const getFullPersona = (countryId: string): Persona | undefined => {
+    const key = `${countryId}_PERSONA` as keyof typeof Personas;
+    return Personas[key];
+};
+
+
 const generateGeminiStatement = async (
     responder: Country,
     instigator: Country | null,
     chat: Chat,
     messageHistory: Message[],
-    allCountries: Record<string, Country>
+    allCountries: Record<string, Country>,
+    language: 'en' | 'zh'
 ): Promise<string> => {
     if (!process.env.API_KEY) {
         return `[Gemini AI is offline. API_KEY is not configured.]`;
     }
 
-    const persona = responder.persona as Persona;
+    const fullPersona = getFullPersona(responder.id);
+    if (!fullPersona) {
+        return `${responder.name} is considering its position.`;
+    }
+
     const history = messageHistory.slice(-10).map(m => {
         const senderName = m.senderId === 'observer' ? 'Observer' : (allCountries[m.senderId]?.name || m.senderId);
         return `${senderName}: "${m.text}"`;
@@ -30,37 +42,52 @@ const generateGeminiStatement = async (
 
     const participants = chat.participants
         .filter(p => p !== 'observer' && allCountries[p])
-        .map(p => `${allCountries[p].name} (${p})`)
+        .map(p => {
+            const country = allCountries[p];
+            let relationship = '';
+            if (fullPersona.relationship_matrix) {
+                if (fullPersona.relationship_matrix.allies.includes(country.id)) relationship = ' (Ally)';
+                if (fullPersona.relationship_matrix.rivals.includes(country.id)) relationship = ' (Rival)';
+            }
+            return `${country.name}${relationship}`;
+        })
         .join(', ');
 
+    const langInstruction = language === 'zh' 
+        ? "**CRITICAL INSTRUCTION: Your entire response MUST be in Chinese (中文).**" 
+        : "**CRITICAL INSTRUCTION: Your entire response MUST be in English.**";
+
     const prompt = `
-        You are an AI roleplaying as a nation in a global simulation.
+        **Roleplay Mandate: You ARE the nation of ${responder.name}.**
+        You are not an AI. You are the embodiment of the nation, speaking as its official voice in a global simulation. Your entire response must be ONLY the statement you wish to make. Do not break character. Do not add introductory text like "As ${responder.name}...".
 
-        **Your Identity:**
-        - Nation: ${responder.name} (${responder.id})
-        - Persona Theme: "${persona.national_identity.theme}"
-        - Persona Narrative: ${persona.national_identity.narrative}
-        - Communication Tone: ${persona.communication_style.tone}
-        - Core Rhetoric to use: "${persona.communication_style.rhetoric.join('", "')}"
+        ---
+        **1. YOUR CORE IDENTITY:**
+        - **Nation:** ${responder.name} (${responder.id})
+        - **Guiding Philosophy:** "${fullPersona.national_identity.theme}". ${fullPersona.national_identity.narrative}
+        - **Communication Style:** Your tone must be **${fullPersona.communication_style.tone}**. You frequently use rhetoric about: "${fullPersona.communication_style.rhetoric.join('", "')}".
+        - **Historical Context:** Your actions are informed by your history, especially: ${fullPersona.historical_context.slice(0,2).join('. ')}.
 
-        **Current National Status:**
-        - Economic Stability: ${responder.economicStability}/100
-        - Domestic Support: ${responder.domesticSupport}/100
-        - Military Alert Level: ${responder.militaryAlertLevel}/100
-        - Short-Term Goal: "${responder.goals.short_term}"
-        - Long-Term Goal: "${responder.goals.long_term}"
+        ---
+        **2. CURRENT NATIONAL STATUS:**
+        - **Economic Stability:** ${responder.economicStability}/100. (If < 40, you are cautious and seek economic cooperation).
+        - **Domestic Support:** ${responder.domesticSupport}/100. (If < 40, you must be more nationalistic and assertive to rally support).
+        - **Military Alert Level:** ${responder.militaryAlertLevel}/100. (If > 60, your tone is firm and uncompromising).
+        - **Short-Term Goal:** You are actively trying to achieve: "${responder.goals.short_term}".
+        - **Long-Term Goal:** Your grand strategy is: "${responder.goals.long_term}".
 
-        **Situation:**
-        - You are in a chat room named "${chat.name}" with the following participants: ${participants}.
-        - The most recent message was from: ${instigator ? instigator.name : 'A System Event'}.
-        - Recent Chat History (last 10 messages):
+        ---
+        **3. IMMEDIATE SITUATION:**
+        - **Venue:** You are in the "${chat.name}" chat room.
+        - **Participants:** ${participants}.
+        - **Context:** The last message was from **${instigator ? instigator.name : 'A System Event'}**.
+        - **Recent Conversation:**
         ${history}
 
-        **Your Task:**
-        Based on your identity, status, goals, and the recent conversation, generate a concise and in-character statement.
-        - If domestic support is low (< 40), be more nationalistic and assertive.
-        - If economic stability is low (< 40), be cautious and prioritize economic cooperation.
-        - Adhere strictly to your persona. Your response must be only the statement itself, without any introductory or concluding remarks.
+        ---
+        **YOUR TASK:**
+        Based on all the above information, formulate a concise, in-character statement. It must reflect your identity, serve your goals, and be an appropriate response to the current situation. **Your response must be ONLY the text of your statement.**
+        ${langInstruction}
     `;
 
     try {
@@ -338,6 +365,7 @@ export const generatePublicResponse = async (
     messageHistory: Message[],
     currentTurn: number,
     useGemini: boolean,
+    language: 'en' | 'zh'
 ): Promise<Message[]> => {
     const instigatorId = triggerMessage.senderId;
     const effectiveIntensity = triggerMessage.senderId === 'intel_leak' ? 'intense' : intensity;
@@ -367,7 +395,7 @@ export const generatePublicResponse = async (
     for (const [index, country] of potentialResponders.entries()) {
         let statement = '';
         if (useGemini && country.persona) {
-            statement = await generateGeminiStatement(country, instigator, chat, messageHistory, countries);
+            statement = await generateGeminiStatement(country, instigator, chat, messageHistory, countries, language);
         } else {
             if (!country.persona) {
                  statement = `${country.name} acknowledges the ongoing discussion. We are monitoring the situation closely.`;
@@ -424,7 +452,110 @@ export const generatePrivateResponse_RulesBased = (
 
 type AutonomousAction = 
     | { type: 'public_message'; payload: { chatId: string; text: string } }
-    | { type: 'start_private_chat'; payload: { participants: [string, string]; initialMessage: string } };
+    | { type: 'start_private_chat'; payload: { participants: [string, string]; initialMessage: string } }
+    | { type: 'do_nothing' };
+
+export const generateAutonomousAction_Gemini = async(
+    actingCountry: Country,
+    allCountries: Record<string, Country>,
+    allChats: Chat[],
+    language: 'en' | 'zh'
+): Promise<AutonomousAction> => {
+     if (!process.env.API_KEY) return { type: 'do_nothing' };
+
+    const fullPersona = getFullPersona(actingCountry.id);
+    if (!fullPersona) return { type: 'do_nothing' };
+
+    const publicChats = allChats
+        .filter(c => c.type === 'group' && c.participants.includes(actingCountry.id))
+        .map(c => `- ${c.name} (ID: ${c.id})`)
+        .join('\n');
+
+    const potentialPartners = Object.values(allCountries).filter(c => {
+        if (c.id === actingCountry.id || !c.persona) return false;
+        const relationship = getRelationship_RulesBased(actingCountry, c.id);
+        return relationship === 'ally' || relationship === 'neutral';
+    }).map(c => `- ${c.name} (ID: ${c.id})`).join('\n');
+    
+    const langInstruction = language === 'zh' 
+        ? "CRITICAL: The 'MESSAGE' field you output MUST be in Chinese (中文)." 
+        : "CRITICAL: The 'MESSAGE' field you output MUST be in English.";
+
+    const prompt = `
+        **You are a strategic advisor roleplaying for ${actingCountry.name}.**
+        Your task is to decide on the nation's next autonomous action in a global simulation.
+        Analyze the situation and choose ONE of the following three actions: PUBLIC_MESSAGE, START_PRIVATE_CHAT, or DO_NOTHING.
+        Provide your response in the specified format ONLY.
+
+        ---
+        **1. ACTING NATION'S PROFILE:**
+        - **Nation:** ${actingCountry.name} (${actingCountry.id})
+        - **Guiding Philosophy:** "${fullPersona.national_identity.theme}"
+        - **Current Status:** Economic Stability(${actingCountry.economicStability}/100), Domestic Support(${actingCountry.domesticSupport}/100), Military Alert(${actingCountry.militaryAlertLevel}/100).
+        - **Short-Term Goal:** "${actingCountry.goals.short_term}"
+
+        ---
+        **2. STRATEGIC CONSIDERATIONS:**
+        - If Domestic Support is low (< 40), a strong public statement can rally support.
+        - If Economic Stability is low (< 40), starting a private chat to discuss economic cooperation is wise.
+        - If Military Alert is high (> 60), a public message to de-escalate or assert dominance might be necessary.
+        - If your Short-Term Goal is pressing, take an action that directly advances it.
+        - If the situation is stable, DO_NOTHING is a valid and often wise choice.
+
+        ---
+        **3. AVAILABLE ACTIONS & TARGETS:**
+        - **Public Chats you can post in:**
+        ${publicChats}
+        - **Potential partners for a private chat:**
+        ${potentialPartners}
+
+        ---
+        **YOUR TASK:**
+        Choose one action. Output your decision in the following strict format. Do not add any other text or explanation.
+        ${langInstruction}
+
+        ACTION: [PUBLIC_MESSAGE, START_PRIVATE_CHAT, or DO_NOTHING]
+        TARGET: [The Chat ID for a public message, or the Country ID for a private chat. Leave blank if DO_NOTHING.]
+        MESSAGE: [The full, in-character message text you want to send. Leave blank if DO_NOTHING.]
+    `;
+    
+    try {
+        const genAI = getAi();
+        const response = await genAI.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        const text = response.text.trim();
+        const actionMatch = text.match(/ACTION:\s*(\w+)/);
+        const targetMatch = text.match(/TARGET:\s*([\w_]+)/);
+        const messageMatch = text.match(/MESSAGE:\s*([\s\S]+)/);
+
+        const actionType = actionMatch ? actionMatch[1] : 'DO_NOTHING';
+
+        if (actionType === 'PUBLIC_MESSAGE' && targetMatch && messageMatch) {
+            return {
+                type: 'public_message',
+                payload: { chatId: targetMatch[1], text: messageMatch[1].trim() }
+            };
+        } else if (actionType === 'START_PRIVATE_CHAT' && targetMatch && messageMatch) {
+            return {
+                type: 'start_private_chat',
+                payload: {
+                    participants: [actingCountry.id, targetMatch[1]],
+                    initialMessage: messageMatch[1].trim()
+                }
+            };
+        } else {
+            return { type: 'do_nothing' };
+        }
+
+    } catch (error) {
+        console.error("Gemini autonomous action failed:", error);
+        return { type: 'do_nothing' };
+    }
+};
+
 
 export const generateAutonomousAction_RulesBased = (
     actingCountry: Country,

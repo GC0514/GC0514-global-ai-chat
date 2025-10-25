@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useRef, ReactNode } from 'react';
 import { Chat, Message, AiIntensity, Country, NewsItem, Persona } from '../types';
 import { RAW_COUNTRIES, EVENT_KNOWLEDGE_BASE, BREAKING_NEWS_OPTIONS, TRANSLATIONS, G7_MEMBERS, BRICS_MEMBERS, SCO_MEMBERS, NATO_MEMBERS, EU_MEMBERS, AU_MEMBERS, ARAB_LEAGUE_MEMBERS, GCC_MEMBERS } from '../../data';
-import { generatePublicResponse, generatePrivateResponse_RulesBased, evaluateAndGetRelationshipUpdates, generateInitialGoals_RulesBased, generateSecretDiplomacy, generateAutonomousAction_RulesBased } from '../services/aiService';
+import { generatePublicResponse, generatePrivateResponse_RulesBased, evaluateAndGetRelationshipUpdates, generateInitialGoals_RulesBased, generateSecretDiplomacy, generateAutonomousAction_RulesBased, generateAutonomousAction_Gemini } from '../services/aiService';
 import { playNotificationSound } from '../utils/audio';
 
 // --- INITIAL STATE ---
@@ -150,14 +150,44 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
     useEffect(() => { document.body.className = `theme-${theme}`; }, [theme]);
 
-    useEffect(() => {
-        if (messages.length <= initialState.messages.length) return;
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage.senderId !== 'observer' && lastMessage.chatId !== activeChatIdRef.current) {
-            playNotificationSound();
-            setUnreadCounts(prev => ({ ...prev, [lastMessage.chatId]: (prev[lastMessage.chatId] || 0) + 1 }));
+    const addMessage = (msg: Message) => {
+        const chatContext = chats.find(c => c.id === msg.chatId);
+        if (!chatContext) return;
+        
+        const isNewMessageForInactiveChat = msg.senderId !== 'observer' && msg.chatId !== activeChatIdRef.current;
+
+        setMessages(prev => [...prev, msg]);
+        if (isNewMessageForInactiveChat) {
+             setUnreadCounts(prev => ({ ...prev, [msg.chatId]: (prev[msg.chatId] || 0) + 1 }));
         }
-    }, [messages]);
+
+        handleRelationshipUpdates(msg, chatContext);
+        handleStatUpdates(msg, chatContext);
+
+        const diplomacy = generateSecretDiplomacy(msg, chatContext, countries, turnCounter.current);
+        if (diplomacy.systemMessage) {
+            setMessages(prev => [...prev, diplomacy.systemMessage!]);
+            setCountries(prev => {
+                const newCountries = { ...prev };
+                Object.keys(diplomacy.countryUpdates).forEach(id => {
+                    newCountries[id] = { ...newCountries[id], ...diplomacy.countryUpdates[id] };
+                });
+                return newCountries;
+            });
+        }
+    };
+    
+    const addMessagesWithDelay = (msgs: Message[]) => {
+        let cumulativeDelay = 0;
+        msgs.forEach((res) => {
+            const delay = 2000 + Math.random() * 3000; // Staggered delay between 2 and 5 seconds
+            cumulativeDelay += delay;
+            setTimeout(() => {
+                addMessage(res);
+                playNotificationSound(); // Play sound as each message arrives
+            }, cumulativeDelay);
+        });
+    };
 
     const handleStatUpdates = (message: Message, chat: Chat) => {
         const statChanges: Record<string, { eco?: number; sup?: number; mil?: number }> = {};
@@ -228,33 +258,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         });
     };
 
-    const addMessage = (msg: Message) => {
-        const chatContext = chats.find(c => c.id === msg.chatId);
-        if (!chatContext) return;
-
-        setMessages(prev => [...prev, msg]);
-        handleRelationshipUpdates(msg, chatContext);
-        handleStatUpdates(msg, chatContext);
-
-        const diplomacy = generateSecretDiplomacy(msg, chatContext, countries, turnCounter.current);
-        if (diplomacy.systemMessage) {
-            setMessages(prev => [...prev, diplomacy.systemMessage!]);
-            setCountries(prev => {
-                const newCountries = { ...prev };
-                Object.keys(diplomacy.countryUpdates).forEach(id => {
-                    newCountries[id] = { ...newCountries[id], ...diplomacy.countryUpdates[id] };
-                });
-                return newCountries;
-            });
-        }
-    };
-    
-    const addMessagesWithDelay = (msgs: Message[]) => {
-        msgs.forEach((res, index) => {
-            setTimeout(() => addMessage(res), (index + 1) * 100);
-        });
-    };
-
     const handleSelectChat = (chatId: string) => {
         setActiveChatId(chatId);
         if (unreadCounts[chatId]) {
@@ -273,55 +276,58 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         if (activeChat.type === 'private') {
             addMessage(generatePrivateResponse_RulesBased(newMessage, activeChat, countries, messageHistory));
         } else if (activeChat.type === 'group' || activeChat.type === 'summit') {
-            const responses = await generatePublicResponse(newMessage, activeChat, aiIntensity, countries, messageHistory, turnCounter.current, useGeminiAI);
+            const responses = await generatePublicResponse(newMessage, activeChat, aiIntensity, countries, messageHistory, turnCounter.current, useGeminiAI, language);
             addMessagesWithDelay(responses);
         }
     };
 
-    const handleAutonomousAiAction = () => {
-        setTimeout(async () => {
-            const actingCountry = (() => {
-                const tiers: Record<number, Country[]> = { 1: [], 2: [], 3: [] };
-                Object.values(countries).forEach((c: Country) => c.persona && tiers[c.tier].push(c));
-                const rand = Math.random();
-                if (rand < 0.6 && tiers[1].length > 0) return tiers[1][Math.floor(Math.random() * tiers[1].length)];
-                if (rand < 0.9 && tiers[2].length > 0) return tiers[2][Math.floor(Math.random() * tiers[2].length)];
-                if (tiers[3].length > 0) return tiers[3][Math.floor(Math.random() * tiers[3].length)];
-                return Object.values(countries).find((c: Country) => c.persona)!;
-            })();
+    const handleAutonomousAiAction = async () => {
+        turnCounter.current++;
+        const actingCountry = (() => {
+            const tiers: Record<number, Country[]> = { 1: [], 2: [], 3: [] };
+            Object.values(countries).forEach((c: Country) => c.persona && tiers[c.tier].push(c));
+            const rand = Math.random();
+            if (rand < 0.6 && tiers[1].length > 0) return tiers[1][Math.floor(Math.random() * tiers[1].length)];
+            if (rand < 0.9 && tiers[2].length > 0) return tiers[2][Math.floor(Math.random() * tiers[2].length)];
+            if (tiers[3].length > 0) return tiers[3][Math.floor(Math.random() * tiers[3].length)];
+            return Object.values(countries).find((c: Country) => c.persona)!;
+        })();
 
-            const action = generateAutonomousAction_RulesBased(actingCountry, countries, chats, turnCounter.current);
-            if (!action) return;
+        const action = useGeminiAI 
+            ? await generateAutonomousAction_Gemini(actingCountry, countries, chats, language)
+            : generateAutonomousAction_RulesBased(actingCountry, countries, chats, turnCounter.current);
 
-            if (action.type === 'public_message') {
-                const message: Message = { id: messageIdCounter.current++, chatId: action.payload.chatId, senderId: actingCountry.id, text: action.payload.text, timestamp: Date.now() };
-                addMessage(message);
-                const chatContext = chats.find(c => c.id === action.payload.chatId)!;
-                const responses = await generatePublicResponse(message, chatContext, aiIntensity, countries, [...messages, message], turnCounter.current, useGeminiAI);
-                addMessagesWithDelay(responses);
-            } else if (action.type === 'start_private_chat') {
-                const { participants, initialMessage } = action.payload;
-                const sortedIds = participants.sort();
-                const chatId = `private_${sortedIds.join('_')}`;
+        if (!action || action.type === 'do_nothing') return;
 
-                if (chats.some(c => c.id === chatId)) return;
-                
-                const countryA = countries[participants[0]];
-                const countryB = countries[participants[1]];
+        if (action.type === 'public_message') {
+            const message: Message = { id: messageIdCounter.current++, chatId: action.payload.chatId, senderId: actingCountry.id, text: action.payload.text, timestamp: Date.now() };
+            addMessage(message);
+            const chatContext = chats.find(c => c.id === action.payload.chatId)!;
+            const responses = await generatePublicResponse(message, chatContext, aiIntensity, countries, [...messages, message], turnCounter.current, useGeminiAI, language);
+            addMessagesWithDelay(responses);
+        } else if (action.type === 'start_private_chat') {
+            const { participants, initialMessage } = action.payload;
+            const sortedIds = participants.sort();
+            const chatId = `private_${sortedIds.join('_')}`;
 
-                const newChat: Chat = { id: chatId, name: `🤝 ${countryA.name} & ${countryB.name}`, type: 'private', participants: sortedIds };
-                const systemAnnouncement: Message = { id: messageIdCounter.current++, chatId: 'global', senderId: 'system', text: `System Notification: ${countryA.avatar} ${countryA.name} and ${countryB.avatar} ${countryB.name} have opened a private channel.`, timestamp: Date.now() };
-                addMessage(systemAnnouncement);
-                setChats(prev => [newChat, ...prev]);
+            if (chats.some(c => c.id === chatId)) return;
+            
+            const countryA = countries[participants[0]];
+            const countryB = countries[participants[1]];
 
-                const firstMessage: Message = { id: messageIdCounter.current++, chatId: chatId, senderId: actingCountry.id, text: initialMessage, timestamp: Date.now() + 100 };
-                addMessage(firstMessage);
-                
-                const response = generatePrivateResponse_RulesBased(firstMessage, newChat, countries, [firstMessage]);
-                setTimeout(() => addMessage(response), 1000);
-            }
-        }, 2000 + Math.random() * 2000);
+            const newChat: Chat = { id: chatId, name: `🤝 ${countryA.name} & ${countryB.name}`, type: 'private', participants: sortedIds };
+            const systemAnnouncement: Message = { id: messageIdCounter.current++, chatId: 'global', senderId: 'system', text: `System Notification: ${countryA.avatar} ${countryA.name} and ${countryB.avatar} ${countryB.name} have opened a private channel.`, timestamp: Date.now() };
+            addMessage(systemAnnouncement);
+            setChats(prev => [newChat, ...prev]);
+
+            const firstMessage: Message = { id: messageIdCounter.current++, chatId: chatId, senderId: actingCountry.id, text: initialMessage, timestamp: Date.now() + 100 };
+            addMessage(firstMessage);
+            
+            const response = generatePrivateResponse_RulesBased(firstMessage, newChat, countries, [firstMessage]);
+            setTimeout(() => addMessage(response), 1000);
+        }
     };
+
 
     const handlePostNewsEvent = async (newsItem: NewsItem) => {
         const globalChat = chats.find(c => c.id === 'global');
@@ -332,7 +338,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         
         const messageHistory = [...messages, newsMessage];
         const intensity = newsItem.isFabricated ? 'high' : aiIntensity;
-        const responses = await generatePublicResponse(newsMessage, globalChat, intensity, countries, messageHistory, turnCounter.current, useGeminiAI);
+        const responses = await generatePublicResponse(newsMessage, globalChat, intensity, countries, messageHistory, turnCounter.current, useGeminiAI, language);
         addMessagesWithDelay(responses);
     };
 
@@ -355,7 +361,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setSummitModalOpen(false);
         handleSelectChat(summitId);
         
-        const responses = await generatePublicResponse(announcement, newChat, 'high', countries, [announcement], turnCounter.current, useGeminiAI);
+        const responses = await generatePublicResponse(announcement, newChat, 'high', countries, [announcement], turnCounter.current, useGeminiAI, language);
         addMessagesWithDelay(responses);
     };
 
@@ -366,7 +372,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         addMessage(intelMessage);
         setIntelModalOpen(false);
         
-        const responses = await generatePublicResponse(intelMessage, activeChat, aiIntensity, countries, [...messages, intelMessage], turnCounter.current, useGeminiAI);
+        const responses = await generatePublicResponse(intelMessage, activeChat, aiIntensity, countries, [...messages, intelMessage], turnCounter.current, useGeminiAI, language);
         addMessagesWithDelay(responses);
     };
 
