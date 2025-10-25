@@ -33,7 +33,7 @@ export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chat
         if (chat.type === 'private' && !chat.participants.includes('observer')) {
             const aiParticipants = chat.participants.filter(p => countries[p]);
             if (aiParticipants.length > 1) {
-                 chatName = `🤝 ${aiParticipants.map(id => countries[id].name).join(' & ')}`;
+                 chatName = `Secret Channel: ${aiParticipants.map(id => countries[id].name).join(' & ')}`;
             }
         }
         return chatName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -85,13 +85,26 @@ export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chat
                         const isPausable = chat.type === 'group' || chat.type === 'summit';
                         const isPaused = pausedChatIds.has(chat.id);
                         
-                        let avatar = chat.name.split(' ')[0];
-                        let name = chat.name.substring(chat.name.indexOf(' ') + 1);
+                        let avatar = '💬';
+                        let name = chat.name;
 
-                        if (chat.type === 'private' && !chat.participants.includes('observer')) {
-                            const aiParticipants = chat.participants.filter(p => countries[p]);
-                            avatar = '🤝';
-                            name = aiParticipants.map(id => countries[id]?.name).join(' & ');
+                        if (chat.type === 'group' || chat.type === 'summit') {
+                            const nameParts = chat.name.split(' ');
+                            avatar = nameParts[0];
+                            name = nameParts.slice(1).join(' ');
+                        } else if (chat.type === 'private') {
+                            if (chat.participants.includes('observer')) {
+                                const country = countries[chat.participants.find(p => p !== 'observer')!];
+                                avatar = country?.avatar ?? '👤';
+                                name = country?.name ?? 'Private Chat';
+                            } else {
+                                const aiParticipants = chat.participants.filter(p => countries[p]);
+                                avatar = '🤫';
+                                name = `Secret: ${aiParticipants.map(id => countries[id]?.name).join(' & ')}`;
+                            }
+                        } else if (chat.type === 'pact') {
+                            avatar = '✍️';
+                            name = chat.name;
                         }
 
                         return (

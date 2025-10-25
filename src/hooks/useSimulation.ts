@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useSimulationContext } from '../context/SimulationContext';
+import { useManagers } from './useManagers';
 
 export const useSimulation = () => {
-    const { observerMessageCount, handleAutonomousAiAction, isPaused } = useAppContext();
+    const { observerMessageCount, isPaused } = useSimulationContext();
+    const { handleAutonomousAiAction } = useManagers();
 
     useEffect(() => {
         // Trigger an autonomous action every 3 messages from the observer

@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Message, Chat, AiIntensity, Country, Persona, NewsItem } from '../types';
+import { Message, Chat, AiIntensity, Country, Persona, NewsItem, Pact } from '../types';
 import * as Personas from '../../personas';
 
 // --- Gemini AI Engine (New) ---
@@ -56,6 +56,38 @@ export const generateGeminiStatement = async (
     const langInstruction = language === 'zh' 
         ? "**CRITICAL INSTRUCTION: Your entire response MUST be in Chinese (中文).**" 
         : "**CRITICAL INSTRUCTION: Your entire response MUST be in English.**";
+    
+    const pacts = responder.activePacts
+        .filter(p => p.status === 'active')
+        .map(p => {
+            const otherPartyId = p.participants.find(id => id !== responder.id)!;
+            const otherPartyName = allCountries[otherPartyId]?.name || 'Unknown';
+            return `- **${p.type.replace('_', ' ')} Pact with ${otherPartyName}:** You are bound to support them economically or technologically, or forbidden from making hostile statements.`;
+        }).join('\n');
+
+    let situationSpecifics = `
+        - **Venue:** You are in the "${chat.name}" chat room.
+        - **Participants:** ${participants}.
+        - **Context:** The last message was from **${instigator ? instigator.name : 'A System Event'}**. If the message contains quoted text (e.g., > "text"), your response should directly address it.
+        - **Recent Conversation:**
+        ${history}
+    `;
+
+    if (chat.type === 'pact') {
+        const otherParty = chat.participants.find(p => p !== responder.id)!;
+        const otherCountry = allCountries[otherParty];
+        const pact = responder.activePacts.find(p => p.id === chat.id);
+        situationSpecifics = `
+        - **Venue:** A private negotiation channel to discuss a formal pact.
+        - **Participants:** You (${responder.name}) and ${otherCountry.name}.
+        - **Context:** The Observer has proposed a "${pact?.type}" pact between your two nations. You have been asked for your official response.
+        - **Your Task:** Analyze the proposal based on your nation's goals, interests, and relationship with ${otherCountry.name}. Your response must be strategic and clear.
+        - **CRITICAL INSTRUCTION:** You MUST begin your response with "I ACCEPT:" if you agree to the pact, or "I REJECT:" if you decline. Follow this with your reasoning. Example: "I ACCEPT: This aligns with our goals of regional stability."
+        - **Recent Conversation:**
+        ${history}
+        `;
+    }
+
 
     const prompt = `
         **Roleplay Mandate: You ARE the nation of ${responder.name}.**
@@ -77,16 +109,16 @@ export const generateGeminiStatement = async (
         - **Long-Term Goal:** Your grand strategy is: "${responder.goals.long_term}".
 
         ---
-        **3. IMMEDIATE SITUATION:**
-        - **Venue:** You are in the "${chat.name}" chat room.
-        - **Participants:** ${participants}.
-        - **Context:** The last message was from **${instigator ? instigator.name : 'A System Event'}**. If the message contains quoted text (e.g., > "text"), your response should directly address it.
-        - **Recent Conversation:**
-        ${history}
+        **3. DIPLOMATIC OBLIGATIONS (Active Pacts):**
+        ${pacts || "You have no active pacts. You are free to act according to your interests."}
+        **You MUST adhere to these pacts.** Betraying an ally will have severe consequences.
 
         ---
+        **4. IMMEDIATE SITUATION:**
+        ${situationSpecifics}
+        ---
         **YOUR TASK:**
-        Based on all the above information, formulate a concise, in-character statement. It must reflect your identity, serve your goals, and be an appropriate response to the current situation. **Your response must be ONLY the text of your statement.** Pay attention to any quoted text in the last message and address it directly.
+        Based on all the above information, formulate a concise, in-character statement. It must reflect your identity, serve your goals, honor your pacts, and be an appropriate response to the current situation. **Your response must be ONLY the text of your statement.** Pay attention to any quoted text in the last message and address it directly.
         ${langInstruction}
     `;
 

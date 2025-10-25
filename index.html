@@ -528,7 +528,112 @@
         }
         .send-button:hover { filter: brightness(1.1); }
         
-        /* --- Dashboard Views Removed --- */
+        /* --- Command View --- */
+        .command-view-grid {
+            grid-column: 2 / 4;
+            display: grid;
+            grid-template-rows: 60px 1fr;
+            grid-template-columns: 1fr;
+            padding: 0;
+            overflow-y: auto;
+        }
+        .dashboard-section, .operations-section {
+            padding: 1.5rem;
+        }
+        .dashboard-section {
+            border-bottom: 1px solid var(--border-color);
+        }
+        .dashboard-section h3, .operations-section h3 {
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--background-input);
+            border-radius: var(--border-radius-subtle);
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            border: 1px solid var(--border-color);
+        }
+        .stat-icon {
+            font-size: 2rem;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--background-hover);
+        }
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+        .bloc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        .bloc-card {
+            background: var(--background-input);
+            border-radius: var(--border-radius-subtle);
+            padding: 1rem;
+            border: 1px solid var(--border-color);
+        }
+        .bloc-card h4 { margin-bottom: 0.75rem; color: var(--accent-primary); }
+        .bloc-card p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; }
+
+        .operations-section {
+            padding: 1rem 1.5rem;
+        }
+        .operations-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+        .op-button {
+            background-color: var(--background-input);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 1rem;
+            border-radius: var(--border-radius-subtle);
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1rem;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            transition: all var(--transition-fast);
+        }
+        .op-button:hover {
+            background-color: var(--background-hover);
+            border-color: var(--accent-primary);
+        }
+        
+        /* Make NewsPicker popups work in command view */
+        .command-view-grid .toolbar-button-wrapper .popup-panel {
+            bottom: auto;
+            top: calc(100% + 5px);
+            left: 0;
+            transform: none;
+            width: 100%;
+        }
 
         /* --- Modals --- */
         .modal-overlay {

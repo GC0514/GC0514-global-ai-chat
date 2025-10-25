@@ -24,6 +24,15 @@ export interface Persona {
     };
 }
 
+export interface Pact {
+    id: string;
+    type: 'non_aggression' | 'economic_cooperation' | 'tech_sharing';
+    participants: [string, string];
+    status: 'proposed' | 'active' | 'broken' | 'negotiating' | 'rejected';
+    proposer: string; // Country ID
+    expires: number; // Turn number
+}
+
 export interface Country {
     id: string;
     name: string;
@@ -59,12 +68,14 @@ export interface Country {
         stance: string,
         turnExpires: number,
     }>;
+    activePacts: Pact[];
+    observerTrust: number;
 }
 
 export interface Message {
     id: number;
     chatId: string;
-    senderId: 'observer' | 'news_flash' | 'intel_leak' | 'system' | string; // Can be country ID or special sender
+    senderId: 'observer' | 'news_flash' | 'intel_leak' | 'system' | 'world_event' | 'pact_event' | string; // Can be country ID or special sender
     title?: string;
     text: string;
     timestamp: number;
@@ -74,7 +85,7 @@ export interface Message {
 export interface Chat {
     id: string;
     name: string;
-    type: 'group' | 'private' | 'summit';
+    type: 'group' | 'private' | 'summit' | 'pact';
     participants: string[];
 }
 
@@ -88,4 +99,27 @@ export interface NewsItem {
     tags?: string[];
     involved_countries?: string[];
     isFabricated?: boolean;
+}
+
+export interface WorldEvent {
+    id: number;
+    turn: number;
+    type: 'pact_proposed' | 'pact_accepted' | 'pact_rejected' | 'pact_expired' | 'pact_broken' | 'world_crisis' | 'intel_success' | 'intel_failure' | 'news_published' | 'goal_change';
+    description: string;
+    relatedCountryIds: string[];
+}
+
+export interface PowerBlocMetrics {
+    avgEconomicStability: number;
+    avgDomesticSupport: number;
+}
+
+export interface WorldStateMetrics {
+    globalEconomicIndex: number;
+    internationalTensionLevel: number;
+    activePactsCount: number;
+    g7Metrics: PowerBlocMetrics;
+    bricsMetrics: PowerBlocMetrics;
+    scoMetrics: PowerBlocMetrics;
+    natoMetrics: PowerBlocMetrics;
 }
