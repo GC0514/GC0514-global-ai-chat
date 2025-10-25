@@ -230,14 +230,18 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             let statement = '';
 
             if (useGeminiAI && responder.persona) {
-                 statement = await generateGeminiStatement(
-                    responder,
-                    currentItem.instigator,
-                    currentItem.chat,
-                    currentItem.messageHistory,
-                    countries,
-                    language
-                );
+                if (currentItem.chat.type === 'private') {
+                    statement = await generatePrivateResponse_Gemini(responder, currentItem.chat, currentItem.messageHistory, countries, language);
+                } else {
+                    statement = await generateGeminiStatement(
+                        responder,
+                        currentItem.instigator,
+                        currentItem.chat,
+                        currentItem.messageHistory,
+                        countries,
+                        language
+                    );
+                }
             } else {
                  statement = `${responder.name} acknowledges the ongoing discussion. We are monitoring the situation closely.`;
             }
@@ -371,7 +375,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setClosedNewsItems(new Set()); // Reset closed news when chat changes
     };
     
-    const handleSendMessage = async (text: string) => {
+    const handleSendMessage = (text: string) => {
         if (!activeChat) return;
         turnCounter.current++;
         const newMessage: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: 'observer', text, timestamp: Date.now() };
@@ -381,21 +385,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         const messageHistory = [...messages, newMessage];
 
         if (activeChat.type === 'private') {
-            // ... private logic remains largely the same but needs to respect pause
-            if(isPaused) return;
-             const respondingCountryId = activeChat.participants.find(p => p !== 'observer' && countries[p]);
+            const respondingCountryId = activeChat.participants.find(p => p !== 'observer' && countries[p]);
             if (!respondingCountryId) return;
 
-            const respondingCountry = countries[respondingCountryId];
-            let responseText = '';
-            if (useGeminiAI) {
-                responseText = await generatePrivateResponse_Gemini(respondingCountry, activeChat, messageHistory, countries, language);
-            } else {
-                responseText = generatePrivateResponse_RulesBased(newMessage, activeChat, countries, messageHistory).text;
-            }
-             const responseMsg: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: respondingCountryId, text: responseText, timestamp: Date.now() + 100 };
-             addMessage(responseMsg);
-             playNotificationSound();
+            const newQueueItem: ResponseQueueItem = {
+                responderId: respondingCountryId,
+                instigator: null,
+                chat: activeChat,
+                messageHistory: messageHistory,
+            };
+            setResponseQueue(prev => [...prev, newQueueItem]);
 
         } else if (activeChat.type === 'group' || activeChat.type === 'summit') {
              // NEW: Add to queue instead of direct call
@@ -526,17 +525,37 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const handleStartPrivateChat = (countryId: string) => {
-        // ... (same as before)
-         const privateChatId = `private_observer_${countryId}`;
+        const privateChatId = `private_observer_${countryId}`;
         const existingChat = chats.find(c => c.id === privateChatId);
+    
         if (existingChat) {
             handleSelectChat(existingChat.id);
         } else {
             const country = countries[countryId];
             const newChat: Chat = { id: privateChatId, name: `${country.avatar} ${country.name}`, type: 'private', participants: ['observer', countryId] };
+            
+            // Add an initial message to the new private chat
+            const initialMessage: Message = {
+                id: messageIdCounter.current++,
+                chatId: privateChatId,
+                senderId: 'system',
+                text: `Private channel with ${country.name} opened.`,
+                timestamp: Date.now()
+            };
+
+            const observerGreeting: Message = {
+                 id: messageIdCounter.current++,
+                 chatId: privateChatId,
+                 senderId: 'observer',
+                 text: `Thank you for speaking with me, delegate. What is on your mind?`,
+                 timestamp: Date.now() + 1
+            }
+
+            setMessages(prev => [...prev, initialMessage, observerGreeting]);
             setChats(prev => [newChat, ...prev]);
             handleSelectChat(newChat.id);
         }
+    
         setModalCountry(null);
         setActiveView('chats');
     };

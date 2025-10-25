@@ -42,8 +42,8 @@ const MessageComponent: React.FC<{ message: Message; countries: Record<string, C
                         <div className="message-sender">Unknown Source</div>
                         <div className="message-bubble">{message.text}</div>
                      </div>
+                    <button className="quote-button" title="Quote" onClick={() => onQuote(message)}>↩️</button>
                  </div>
-                 <button className="quote-button" title="Quote" onClick={() => onQuote(message)}>↩️</button>
             </div>
         )
     }
@@ -173,7 +173,7 @@ const NewsPicker: React.FC<{ type: 'real' | 'fake'; countries: Record<string, Co
     });
 
     return (
-        <div className="news-picker" ref={pickerRef}>
+        <div className="popup-panel align-left news-picker" ref={pickerRef}>
             <div className="news-picker-header">{today}</div>
             <ul className="news-picker-list">
                 {newsOptions.map(item => (
@@ -212,10 +212,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, countries, message
     const messageListRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [inputValue, setInputValue] = useState('');
-    const [isEmojiPickerOpen, setEmojiPickerOpen] = useState(false);
-    const [isActionsMenuOpen, setActionsMenuOpen] = useState(false);
-    const [isSimControlOpen, setSimControlOpen] = useState(false);
-    const [newsPickerState, setNewsPickerState] = useState<{ isOpen: boolean; type: 'real' | 'fake' }>({ isOpen: false, type: 'real' });
+    const [activePopup, setActivePopup] = useState<string | null>(null);
+
+    const handlePopupToggle = (popupName: string) => {
+        setActivePopup(prev => (prev === popupName ? null : popupName));
+    };
     
     const newsFlashes = allMessages.filter(m => m.senderId === 'news_flash' && !closedNewsItems.has(m.id)).sort((a, b) => b.timestamp - a.timestamp);
     const currentChatMessages = chat ? allMessages.filter(m => m.chatId === chat.id) : [];
@@ -225,12 +226,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, countries, message
         if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
     }, [currentChatMessages, chat]);
 
+    useEffect(() => {
+        // Close any open popups when the chat changes
+        setActivePopup(null);
+    }, [chat]);
+
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (inputValue.trim()) {
             onSendMessage(inputValue.trim());
             setInputValue('');
-            setEmojiPickerOpen(false);
+            setActivePopup(null);
         }
     };
 
@@ -238,22 +244,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, countries, message
         if (!inputRef.current) return;
 
         const quoteText = `> "${messageToQuote.text.split('\n').join('\n> ')}"`;
-        const currentText = inputValue;
-        const cursorPosition = inputRef.current.selectionStart;
-
-        const textBeforeCursor = currentText.substring(0, cursorPosition);
-        const textAfterCursor = currentText.substring(cursorPosition);
         
-        const newText = `${textBeforeCursor}\n\n${quoteText}\n${textAfterCursor}`;
+        // Append the quote to the end for a better user experience
+        const newText = `${inputValue}${inputValue ? '\n' : ''}${quoteText}\n`;
         
         setInputValue(newText);
 
-        // This is a trick to re-focus and set the cursor position after React's render cycle
+        // Focus and move cursor to the end
         setTimeout(() => {
             if (inputRef.current) {
                 inputRef.current.focus();
-                // Place cursor back where it was, before the new quote
-                inputRef.current.setSelectionRange(cursorPosition, cursorPosition);
+                inputRef.current.scrollTop = inputRef.current.scrollHeight;
             }
         }, 0);
     };
@@ -283,40 +284,51 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, countries, message
             <div className="message-input-area">
                 <div className="input-toolbar">
                     <div className="toolbar-button-wrapper">
-                         <button className="toolbar-button" onClick={() => setEmojiPickerOpen(o => !o)} title="Emoji">😊</button>
-                         {isEmojiPickerOpen && <EmojiPicker onSelect={(emoji) => setInputValue(p => p + emoji)} onClose={() => setEmojiPickerOpen(false)} />}
+                         <button className="toolbar-button" onClick={() => handlePopupToggle('emoji')} title="Emoji">😊</button>
+                         {activePopup === 'emoji' && <EmojiPicker onSelect={(emoji) => setInputValue(p => p + emoji)} onClose={() => setActivePopup(null)} />}
                     </div>
                      <div className="toolbar-button-wrapper">
-                        <button className="toolbar-button" onClick={() => setActionsMenuOpen(o => !o)} title="Special Actions">⚡️</button>
-                         {isActionsMenuOpen && <SpecialActionsMenu onOpenSummitModal={onOpenSummitModal} onOpenIntelModal={onOpenIntelModal} onClose={() => setActionsMenuOpen(false)} />}
+                        <button className="toolbar-button" onClick={() => handlePopupToggle('actions')} title="Special Actions">⚡️</button>
+                         {activePopup === 'actions' && <SpecialActionsMenu onOpenSummitModal={onOpenSummitModal} onOpenIntelModal={onOpenIntelModal} onClose={() => setActivePopup(null)} />}
                     </div>
-                     <div className="toolbar-button-wrapper">
-                        <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'real' })} title="Post Real News Event">📰</button>
-                    </div>
-                     <div className="toolbar-button-wrapper">
-                        <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'fake' })} title="Post Fabricated News Event">💣</button>
-                         {newsPickerState.isOpen && (
+                    <div className="toolbar-button-wrapper">
+                        <button className="toolbar-button" onClick={() => handlePopupToggle('news-real')} title="Post Real News Event">📰</button>
+                        {activePopup === 'news-real' &&
                             <NewsPicker
-                                type={newsPickerState.type}
+                                type='real'
                                 countries={countries}
                                 onSelect={(newsItem) => {
                                     onPostNewsEvent(newsItem);
-                                    setNewsPickerState({ isOpen: false, type: 'real' });
+                                    setActivePopup(null);
                                 }}
-                                onClose={() => setNewsPickerState({ isOpen: false, type: 'real' })}
+                                onClose={() => setActivePopup(null)}
                             />
-                        )}
+                        }
+                    </div>
+                     <div className="toolbar-button-wrapper">
+                        <button className="toolbar-button" onClick={() => handlePopupToggle('news-fake')} title="Post Fabricated News Event">💣</button>
+                        {activePopup === 'news-fake' &&
+                             <NewsPicker
+                                type='fake'
+                                countries={countries}
+                                onSelect={(newsItem) => {
+                                    onPostNewsEvent(newsItem);
+                                    setActivePopup(null);
+                                }}
+                                onClose={() => setActivePopup(null)}
+                            />
+                        }
                     </div>
                     
-                    <div className="toolbar-button-wrapper">
-                         <div className="simulation-controls">
-                            <div className="simulation-speed-control">
-                                <label htmlFor="speed">速度</label>
-                                <input type="range" id="speed" min="1" max="5" value={simulationSpeed} onChange={e => onSimulationSpeedChange(Number(e.target.value))} />
-                            </div>
-                            <button className="toolbar-button" onClick={() => setSimControlOpen(o => !o)} title="Simulation Controls">⏯️</button>
+                    <div className="simulation-controls">
+                        <div className="simulation-speed-control">
+                            <label htmlFor="speed">速度</label>
+                            <input type="range" id="speed" min="1" max="5" value={simulationSpeed} onChange={e => onSimulationSpeedChange(Number(e.target.value))} />
                         </div>
-                        {isSimControlOpen && <SimulationControlPanel isPaused={isPaused} onTogglePause={onTogglePause} onStopSimulation={onStopSimulation} onClose={() => setSimControlOpen(false)} />}
+                        <div className="toolbar-button-wrapper">
+                            <button className="toolbar-button" onClick={() => handlePopupToggle('sim-controls')} title="Simulation Controls">⏯️</button>
+                            {activePopup === 'sim-controls' && <SimulationControlPanel isPaused={isPaused} onTogglePause={onTogglePause} onStopSimulation={onStopSimulation} onClose={() => setActivePopup(null)} />}
+                        </div>
                     </div>
                 </div>
                 <form className="message-input-form" onSubmit={handleSubmit}>

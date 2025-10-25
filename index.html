@@ -449,7 +449,10 @@
             position: relative;
         }
         .input-toolbar { display: flex; gap: 0.75rem; padding-bottom: 0.5rem; align-items: center; }
-        .toolbar-button-wrapper { position: relative; }
+        .toolbar-button-wrapper { 
+            position: relative; 
+            display: flex;
+        }
         .toolbar-button { background: none; border: none; color: var(--text-secondary); font-size: 1.25rem; cursor: pointer; transition: transform 0.1s ease; }
         .toolbar-button:active { transform: scale(0.9); }
         
@@ -469,6 +472,11 @@
             z-index: 100;
             box-shadow: var(--shadow);
             animation: fade-in 0.15s ease-out;
+        }
+
+        .popup-panel.align-left {
+            left: 0;
+            transform: none;
         }
         
         .sim-control-panel {
@@ -583,22 +591,10 @@
         
         /* --- News Picker --- */
         .news-picker {
-            position: absolute;
-            bottom: calc(100% + 5px);
-            left: 50%;
-            transform: translateX(-50%);
             width: clamp(350px, 50vw, 600px);
             max-height: 350px;
             display: flex;
             flex-direction: column;
-            z-index: 100;
-            background: var(--background-panel);
-            border-radius: var(--border-radius-main);
-            border: 1px solid var(--border-color);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            box-shadow: var(--shadow);
-            animation: fade-in 0.15s ease-out;
         }
         .news-picker-header {
             padding: 0.75rem 1rem;

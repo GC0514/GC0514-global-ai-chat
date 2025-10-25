@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { Header } from './src/components/Header';
 import { NavColumn } from './src/components/NavColumn';
@@ -33,7 +34,6 @@ export const App = () => {
         simulationSpeed,
         isPaused,
         pausedChatIds,
-        // FIX: Add missing properties for ChatWindow
         closedNewsItems,
 
         // Actions
@@ -96,7 +96,6 @@ export const App = () => {
                 onTogglePause={togglePause}
                 onStopSimulation={stopAllAiResponses}
                 onAvatarClick={handleAvatarClick}
-                // FIX: Pass missing properties to ChatWindow
                 closedNewsItems={closedNewsItems}
                 onCloseNewsItem={closeNewsItem}
             />

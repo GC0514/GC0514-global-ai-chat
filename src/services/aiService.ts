@@ -532,28 +532,33 @@ export const generateAutonomousAction_Gemini = async(
         });
 
         const text = response.text.trim();
-        const actionMatch = text.match(/ACTION:\s*(\w+)/);
-        const targetMatch = text.match(/TARGET:\s*([\w_]+)/);
-        const messageMatch = text.match(/MESSAGE:\s*([\s\S]+)/);
+        // Use a more robust regex with named capture groups and the 's' flag for multiline messages.
+        const robustParser = /ACTION:\s*(?<action>\w+)\s*TARGET:\s*(?<target>[\w_-]*)\s*MESSAGE:\s*(?<message>[\s\S]*)/s;
+        const match = text.match(robustParser);
 
-        const actionType = actionMatch ? actionMatch[1] : 'DO_NOTHING';
-
-        if (actionType === 'PUBLIC_MESSAGE' && targetMatch && messageMatch) {
-            return {
-                type: 'public_message',
-                payload: { chatId: targetMatch[1], text: messageMatch[1].trim() }
-            };
-        } else if (actionType === 'START_PRIVATE_CHAT' && targetMatch && messageMatch) {
-            return {
-                type: 'start_private_chat',
-                payload: {
-                    participants: [actingCountry.id, targetMatch[1]],
-                    initialMessage: messageMatch[1].trim()
+        if (match && match.groups) {
+            const { action, target, message } = match.groups;
+            
+            if (action === 'PUBLIC_MESSAGE' && target && message) {
+                return {
+                    type: 'public_message',
+                    payload: { chatId: target.trim(), text: message.trim() }
+                };
+            } else if (action === 'START_PRIVATE_CHAT' && target && message) {
+                const targetCountry = Object.values(allCountries).find(c => c.id === target.trim());
+                if(targetCountry) {
+                    return {
+                        type: 'start_private_chat',
+                        payload: {
+                            participants: [actingCountry.id, targetCountry.id],
+                            initialMessage: message.trim()
+                        }
+                    };
                 }
-            };
-        } else {
-            return { type: 'do_nothing' };
+            }
         }
+        
+        return { type: 'do_nothing' };
 
     } catch (error) {
         console.error("Gemini autonomous action failed:", error);
