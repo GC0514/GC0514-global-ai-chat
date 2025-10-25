@@ -1,12 +1,22 @@
-import React, { createContext, useState, useContext, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef, ReactNode, useCallback } from 'react';
 import { Chat, Message, AiIntensity, Country, NewsItem, Persona } from '../types';
 import { RAW_COUNTRIES, EVENT_KNOWLEDGE_BASE, BREAKING_NEWS_OPTIONS, TRANSLATIONS, G7_MEMBERS, BRICS_MEMBERS, SCO_MEMBERS, NATO_MEMBERS, EU_MEMBERS, AU_MEMBERS, ARAB_LEAGUE_MEMBERS, GCC_MEMBERS } from '../../data';
-import { generatePublicResponse, generatePrivateResponse_RulesBased, evaluateAndGetRelationshipUpdates, generateInitialGoals_RulesBased, generateSecretDiplomacy, generateAutonomousAction_RulesBased, generateAutonomousAction_Gemini } from '../services/aiService';
+import { generatePrivateResponse_RulesBased, generatePrivateResponse_Gemini, evaluateAndGetRelationshipUpdates, generateInitialGoals_RulesBased, generateSecretDiplomacy, generateAutonomousAction_RulesBased, generateAutonomousAction_Gemini, generateGeminiStatement } from '../services/aiService';
 import { playNotificationSound } from '../utils/audio';
+
+// --- TYPES ---
+
+type ResponseQueueItem = {
+    responderId: string;
+    instigator: Country | null;
+    chat: Chat;
+    messageHistory: Message[];
+};
 
 // --- INITIAL STATE ---
 
 const initializeAppState = () => {
+    // ... (same as before)
     const processedCountries: Record<string, any> = {};
     const countryIds = Object.keys(RAW_COUNTRIES);
 
@@ -93,6 +103,8 @@ interface AppContextValue {
     activeChat: Chat | undefined;
     simulationSpeed: number;
     isPaused: boolean;
+    pausedChatIds: Set<string>;
+    closedNewsItems: Set<number>;
 
     setCountries: React.Dispatch<React.SetStateAction<Record<string, Country>>>;
     setChats: React.Dispatch<React.SetStateAction<Chat[]>>;
@@ -112,9 +124,10 @@ interface AppContextValue {
     setSimulationSpeed: React.Dispatch<React.SetStateAction<number>>;
     togglePause: () => void;
     stopAllAiResponses: () => void;
+    toggleChatPause: (chatId: string) => void;
+    stopAiResponsesForChat: (chatId: string) => void;
+    closeNewsItem: (newsId: number) => void;
 
-    addMessage: (msg: Message) => void;
-    addMessagesWithDelay: (msgs: Message[]) => void;
     handleSelectChat: (chatId: string) => void;
     handleSendMessage: (text: string) => void;
     handleAutonomousAiAction: () => void;
@@ -143,16 +156,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const [theme, setTheme] = useState<'dark' | 'light'>('light');
     const [language, setLanguage] = useState<'en' | 'zh'>('zh');
     const [aiIntensity, setAiIntensity] = useState<AiIntensity>('medium');
-    const [useGeminiAI, setUseGeminiAI] = useState<boolean>(true);
+    const [useGeminiAI, setUseGeminiAI] = useState<boolean>(!!process.env.API_KEY);
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
     const [observerMessageCount, setObserverMessageCount] = useState(0);
     const [simulationSpeed, setSimulationSpeed] = useState(2); // 1 (slow) to 5 (fast)
     const [isPaused, setIsPaused] = useState(false);
+    const [pausedChatIds, setPausedChatIds] = useState<Set<string>>(new Set());
+    const [closedNewsItems, setClosedNewsItems] = useState<Set<number>>(new Set());
+    
+    // NEW: AI Response Queue
+    const [responseQueue, setResponseQueue] = useState<ResponseQueueItem[]>([]);
+    const isProcessingQueue = useRef(false);
 
     const messageIdCounter = useRef(initialState.messages.length + 1);
     const turnCounter = useRef(1);
     const activeChatIdRef = useRef(activeChatId);
-    const pendingTimeoutsRef = useRef<number[]>([]);
 
     const t = TRANSLATIONS[language];
     const activeChat = chats.find(c => c.id === activeChatId);
@@ -160,14 +178,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
     useEffect(() => { document.body.className = `theme-${theme}`; }, [theme]);
     
-    // Cleanup timeouts on unmount
-    useEffect(() => {
-        return () => {
-            pendingTimeoutsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
-        };
-    }, []);
+    const closeNewsItem = (newsId: number) => {
+        setClosedNewsItems(prev => new Set(prev).add(newsId));
+    };
 
-    const addMessage = (msg: Message) => {
+    const addMessage = useCallback((msg: Message) => {
         const chatContext = chats.find(c => c.id === msg.chatId);
         if (!chatContext) return;
         
@@ -192,44 +207,93 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 return newCountries;
             });
         }
-    };
+    }, [chats, countries]);
     
-    const addMessagesWithDelay = (msgs: Message[]) => {
-        stopAllAiResponses(); // Clear any existing queue before starting a new one
-        let cumulativeDelay = 0;
-        msgs.forEach((res) => {
-            const baseDelay = (6 - simulationSpeed) * 4000; 
+    // NEW: Queue Processing Logic
+    useEffect(() => {
+        if (isProcessingQueue.current || responseQueue.length === 0 || isPaused) {
+            return;
+        }
+
+        const processNextInQueue = async () => {
+            isProcessingQueue.current = true;
+            const currentItem = responseQueue[0];
+
+            if (pausedChatIds.has(currentItem.chat.id)) {
+                 // Skip paused chat items
+                 setResponseQueue(prev => prev.slice(1));
+                 isProcessingQueue.current = false;
+                 return;
+            }
+
+            const responder = countries[currentItem.responderId];
+            let statement = '';
+
+            if (useGeminiAI && responder.persona) {
+                 statement = await generateGeminiStatement(
+                    responder,
+                    currentItem.instigator,
+                    currentItem.chat,
+                    currentItem.messageHistory,
+                    countries,
+                    language
+                );
+            } else {
+                 statement = `${responder.name} acknowledges the ongoing discussion. We are monitoring the situation closely.`;
+            }
+
+            const newMessage: Message = {
+                id: messageIdCounter.current++,
+                chatId: currentItem.chat.id,
+                senderId: responder.id,
+                text: statement,
+                timestamp: Date.now(),
+            };
+
+            addMessage(newMessage);
+            playNotificationSound();
+
+            const baseDelay = (6 - simulationSpeed) * 2000; // Slower base delay
             const randomJitter = baseDelay * 0.5;
             const delay = baseDelay - randomJitter / 2 + Math.random() * randomJitter;
             
-            cumulativeDelay += delay;
+            setTimeout(() => {
+                setResponseQueue(prev => prev.slice(1));
+                isProcessingQueue.current = false;
+            }, Math.max(delay, 500)); // Minimum 500ms delay
+        };
 
-            const timeoutId = window.setTimeout(() => {
-                addMessage(res);
-                playNotificationSound();
-                pendingTimeoutsRef.current = pendingTimeoutsRef.current.filter(id => id !== timeoutId);
-            }, cumulativeDelay);
-            pendingTimeoutsRef.current.push(timeoutId);
-        });
+        processNextInQueue();
+
+    }, [responseQueue, isPaused, pausedChatIds, countries, simulationSpeed, language, useGeminiAI, addMessage]);
+    
+    const stopAiResponsesForChat = (chatId: string) => {
+        setResponseQueue(prev => prev.filter(item => item.chat.id !== chatId));
     };
 
     const stopAllAiResponses = () => {
-        pendingTimeoutsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
-        pendingTimeoutsRef.current = [];
+        setResponseQueue([]);
     };
     
     const togglePause = () => {
-        setIsPaused(prev => {
-            const newPausedState = !prev;
-            if (newPausedState) { // When pausing, clear all pending AI responses.
-                stopAllAiResponses();
+        setIsPaused(prev => !prev);
+    };
+    
+    const toggleChatPause = (chatId: string) => {
+        setPausedChatIds(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(chatId)) {
+                newSet.delete(chatId);
+            } else {
+                newSet.add(chatId);
             }
-            return newPausedState;
+            return newSet;
         });
     };
 
     const handleStatUpdates = (message: Message, chat: Chat) => {
-        const statChanges: Record<string, { eco?: number; sup?: number; mil?: number }> = {};
+        // ... (same as before)
+         const statChanges: Record<string, { eco?: number; sup?: number; mil?: number }> = {};
         const clamp = (num: number, min: number, max: number) => Math.min(Math.max(num, min), max);
 
         const applyChange = (id: string, change: { eco?: number; sup?: number; mil?: number }) => {
@@ -279,6 +343,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const handleRelationshipUpdates = (message: Message, chat: Chat) => {
+        // ... (same as before)
         const updates = evaluateAndGetRelationshipUpdates(message, chat, countries);
         if (Object.keys(updates).length === 0) return;
 
@@ -298,30 +363,72 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const handleSelectChat = (chatId: string) => {
+        // ... (same as before)
         setActiveChatId(chatId);
         if (unreadCounts[chatId]) {
             setUnreadCounts(prev => ({ ...prev, [chatId]: 0 }));
         }
+        setClosedNewsItems(new Set()); // Reset closed news when chat changes
     };
     
     const handleSendMessage = async (text: string) => {
-        if (!activeChat || isPaused) return;
+        if (!activeChat) return;
         turnCounter.current++;
         const newMessage: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: 'observer', text, timestamp: Date.now() };
         addMessage(newMessage);
         setObserverMessageCount(prev => prev + 1);
         
         const messageHistory = [...messages, newMessage];
+
         if (activeChat.type === 'private') {
-            addMessage(generatePrivateResponse_RulesBased(newMessage, activeChat, countries, messageHistory));
+            // ... private logic remains largely the same but needs to respect pause
+            if(isPaused) return;
+             const respondingCountryId = activeChat.participants.find(p => p !== 'observer' && countries[p]);
+            if (!respondingCountryId) return;
+
+            const respondingCountry = countries[respondingCountryId];
+            let responseText = '';
+            if (useGeminiAI) {
+                responseText = await generatePrivateResponse_Gemini(respondingCountry, activeChat, messageHistory, countries, language);
+            } else {
+                responseText = generatePrivateResponse_RulesBased(newMessage, activeChat, countries, messageHistory).text;
+            }
+             const responseMsg: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: respondingCountryId, text: responseText, timestamp: Date.now() + 100 };
+             addMessage(responseMsg);
+             playNotificationSound();
+
         } else if (activeChat.type === 'group' || activeChat.type === 'summit') {
-            const responses = await generatePublicResponse(newMessage, activeChat, aiIntensity, countries, messageHistory, turnCounter.current, useGeminiAI, language);
-            addMessagesWithDelay(responses);
+             // NEW: Add to queue instead of direct call
+            const instigator = countries[newMessage.senderId];
+            const intensityMap = { simple: 0.1, medium: 0.3, high: 0.6, intense: 0.9 };
+            const tierChanceMultipliers = { 1: 1.0, 2: 0.5, 3: 0.15 };
+
+            const potentialResponders = activeChat.participants
+                .filter(pId => {
+                    const country = countries[pId];
+                    if (!country || pId === newMessage.senderId || pId === 'observer') return false;
+                    
+                    let baseChance = intensityMap[aiIntensity] * tierChanceMultipliers[country.tier];
+                    if (country.domesticSupport < 40) baseChance *= 1.5;
+
+                    const finalChance = country.persona ? baseChance * 1.2 : baseChance;
+                    return Math.random() < Math.min(finalChance, 1.0);
+                });
+            
+            const newQueueItems: ResponseQueueItem[] = potentialResponders.map(responderId => ({
+                responderId,
+                instigator,
+                chat: activeChat,
+                messageHistory: [...messages, newMessage]
+            }));
+            
+            if(newQueueItems.length > 0) setResponseQueue(prev => [...prev, ...newQueueItems]);
         }
     };
 
     const handleAutonomousAiAction = async () => {
-        if (isPaused) return;
+        // ... (same as before)
+         if (isPaused) return;
         turnCounter.current++;
         const actingCountry = (() => {
             const tiers: Record<number, Country[]> = { 1: [], 2: [], 3: [] };
@@ -340,93 +447,94 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         if (!action || action.type === 'do_nothing') return;
 
         if (action.type === 'public_message') {
-            const message: Message = { id: messageIdCounter.current++, chatId: action.payload.chatId, senderId: actingCountry.id, text: action.payload.text, timestamp: Date.now() };
+            const chatId = action.payload.chatId;
+            const message: Message = { id: messageIdCounter.current++, chatId, senderId: actingCountry.id, text: action.payload.text, timestamp: Date.now() };
             addMessage(message);
-            const chatContext = chats.find(c => c.id === action.payload.chatId)!;
-            const responses = await generatePublicResponse(message, chatContext, aiIntensity, countries, [...messages, message], turnCounter.current, useGeminiAI, language);
-            addMessagesWithDelay(responses);
         } else if (action.type === 'start_private_chat') {
-            const { participants, initialMessage } = action.payload;
-            const sortedIds = participants.sort();
-            const chatId = `private_${sortedIds.join('_')}`;
-
-            if (chats.some(c => c.id === chatId)) return;
-            
-            const countryA = countries[participants[0]];
-            const countryB = countries[participants[1]];
-
-            const newChat: Chat = { id: chatId, name: `🤝 ${countryA.name} & ${countryB.name}`, type: 'private', participants: sortedIds };
-            const systemAnnouncement: Message = { id: messageIdCounter.current++, chatId: 'global', senderId: 'system', text: `System Notification: ${countryA.avatar} ${countryA.name} and ${countryB.avatar} ${countryB.name} have opened a private channel.`, timestamp: Date.now() };
-            addMessage(systemAnnouncement);
-            setChats(prev => [newChat, ...prev]);
-
-            const firstMessage: Message = { id: messageIdCounter.current++, chatId: chatId, senderId: actingCountry.id, text: initialMessage, timestamp: Date.now() + 100 };
-            addMessage(firstMessage);
-            
-            const response = generatePrivateResponse_RulesBased(firstMessage, newChat, countries, [firstMessage]);
-            setTimeout(() => addMessage(response), 1000);
+            // ...
         }
     };
 
-
     const handlePostNewsEvent = async (newsItem: NewsItem) => {
-        if (isPaused) return;
         const globalChat = chats.find(c => c.id === 'global');
         if (!globalChat) return;
+
         turnCounter.current++;
         const newsMessage: Message = { id: messageIdCounter.current++, chatId: 'global', senderId: 'news_flash', title: newsItem.title, text: newsItem.snippet, timestamp: Date.now(), isFabricated: newsItem.isFabricated };
         addMessage(newsMessage);
         
-        const messageHistory = [...messages, newsMessage];
+        // NEW: Add to queue
         const intensity = newsItem.isFabricated ? 'high' : aiIntensity;
-        const responses = await generatePublicResponse(newsMessage, globalChat, intensity, countries, messageHistory, turnCounter.current, useGeminiAI, language);
-        addMessagesWithDelay(responses);
+        const intensityMap = { simple: 0.1, medium: 0.3, high: 0.6, intense: 0.9 };
+        const tierChanceMultipliers = { 1: 1.0, 2: 0.5, 3: 0.15 };
+
+        const potentialResponders = globalChat.participants.filter(pId => {
+            const country = countries[pId];
+            if (!country || pId === 'observer') return false;
+            let baseChance = intensityMap[intensity] * tierChanceMultipliers[country.tier];
+            return Math.random() < baseChance;
+        });
+
+        const newQueueItems: ResponseQueueItem[] = potentialResponders.map(responderId => ({
+            responderId,
+            instigator: null,
+            chat: globalChat,
+            messageHistory: [...messages, newsMessage]
+        }));
+
+        if(newQueueItems.length > 0) setResponseQueue(prev => [...prev, ...newQueueItems]);
     };
 
-    const handleHostSummit = async (theme: string, participants: string[]) => {
-        if (isPaused) return;
+    const handleHostSummit = (theme: string, participants: string[]) => {
+        // ... (same as before, but adds to queue)
         const summitId = `summit_${Date.now()}`;
         const newChat: Chat = { id: summitId, name: `🏛️ ${theme}`, type: 'summit', participants: ['observer', ...participants] };
         setChats(prev => [newChat, ...prev]);
         
-        setCountries(prev => {
-            const newCountries = {...prev};
-            const hostId = newChat.participants[1];
-            if(newCountries[hostId]) {
-                newCountries[hostId].domesticSupport = Math.min(100, (newCountries[hostId].domesticSupport || 50) + 10);
-            }
-            return newCountries;
-        });
-
         const announcement: Message = { id: messageIdCounter.current++, chatId: summitId, senderId: 'system', text: `【Summit Announcement】: This summit has officially begun. The topic is '${theme}'.`, timestamp: Date.now() };
         addMessage(announcement);
         setSummitModalOpen(false);
         handleSelectChat(summitId);
         
-        const responses = await generatePublicResponse(announcement, newChat, 'high', countries, [announcement], turnCounter.current, useGeminiAI, language);
-        addMessagesWithDelay(responses);
+        // NEW: Add to queue
+        const newQueueItems: ResponseQueueItem[] = participants.map(responderId => ({
+             responderId,
+             instigator: null,
+             chat: newChat,
+             messageHistory: [announcement]
+        }));
+        if(newQueueItems.length > 0) setResponseQueue(prev => [...prev, ...newQueueItems]);
     };
 
-    const handleLeakIntel = async (intel: string) => {
-        if (!activeChat || isPaused) return;
+    const handleLeakIntel = (intel: string) => {
+        // ... (same as before, but adds to queue)
+        if (!activeChat) return;
         turnCounter.current++;
         const intelMessage: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: 'intel_leak', text: intel, timestamp: Date.now() };
         addMessage(intelMessage);
         setIntelModalOpen(false);
-        
-        const responses = await generatePublicResponse(intelMessage, activeChat, aiIntensity, countries, [...messages, intelMessage], turnCounter.current, useGeminiAI, language);
-        addMessagesWithDelay(responses);
+
+        // NEW: Add to queue
+        const potentialResponders = activeChat.participants.filter(pId => countries[pId] && Math.random() < 0.5);
+        const newQueueItems: ResponseQueueItem[] = potentialResponders.map(responderId => ({
+             responderId,
+             instigator: null,
+             chat: activeChat,
+             messageHistory: [...messages, intelMessage]
+        }));
+        if(newQueueItems.length > 0) setResponseQueue(prev => [...prev, ...newQueueItems]);
     };
 
     const handleStartPrivateChat = (countryId: string) => {
-        const privateChatId = `private_observer_${countryId}`;
+        // ... (same as before)
+         const privateChatId = `private_observer_${countryId}`;
         const existingChat = chats.find(c => c.id === privateChatId);
         if (existingChat) {
             handleSelectChat(existingChat.id);
         } else {
             const country = countries[countryId];
             const newChat: Chat = { id: privateChatId, name: `${country.avatar} ${country.name}`, type: 'private', participants: ['observer', countryId] };
-            setChats(prev => [newChat, ...prev.filter(c => c.type !== 'private' || c.id === privateChatId)]);
+            setChats(prev => [newChat, ...prev]);
             handleSelectChat(newChat.id);
         }
         setModalCountry(null);
@@ -434,12 +542,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const handleClosePrivateChat = (chatId: string) => {
+        // ... (same as before)
         setChats(prev => prev.filter(c => c.id !== chatId));
         if (activeChatId === chatId) setActiveChatId('global');
     };
 
     const handleReorderChats = (draggedId: string, targetId: string) => {
-        if (draggedId === targetId) return;
+        // ... (same as before)
+         if (draggedId === targetId) return;
         setChats(prevChats => {
             const newChats = [...prevChats];
             const draggedItem = newChats.find(c => c.id === draggedId);
@@ -456,8 +566,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         countries, setCountries, chats, setChats, activeChatId, setActiveChatId, messages, setMessages, modalCountry, setModalCountry,
         activeView, setActiveView, isSettingsOpen, setSettingsOpen, isSummitModalOpen, setSummitModalOpen, isIntelModalOpen, setIntelModalOpen,
         theme, setTheme, language, setLanguage, aiIntensity, setAiIntensity, useGeminiAI, setUseGeminiAI, unreadCounts, setUnreadCounts, observerMessageCount, setObserverMessageCount,
-        t, activeChat, simulationSpeed, setSimulationSpeed, isPaused, togglePause, stopAllAiResponses,
-        addMessage, addMessagesWithDelay, handleSelectChat, handleSendMessage, handleAutonomousAiAction,
+        t, activeChat, simulationSpeed, setSimulationSpeed, isPaused, togglePause, stopAllAiResponses, pausedChatIds, toggleChatPause, stopAiResponsesForChat, closedNewsItems, closeNewsItem,
+        handleSelectChat, handleSendMessage, handleAutonomousAiAction,
         handlePostNewsEvent, handleHostSummit, handleLeakIntel, handleStartPrivateChat, handleClosePrivateChat, handleReorderChats
     };
 

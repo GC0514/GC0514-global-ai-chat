@@ -18,7 +18,7 @@ const getFullPersona = (countryId: string): Persona | undefined => {
 };
 
 
-const generateGeminiStatement = async (
+export const generateGeminiStatement = async (
     responder: Country,
     instigator: Country | null,
     chat: Chat,
@@ -86,7 +86,7 @@ const generateGeminiStatement = async (
 
         ---
         **YOUR TASK:**
-        Based on all the above information, formulate a concise, in-character statement. It must reflect your identity, serve your goals, and be an appropriate response to the current situation. **Your response must be ONLY the text of your statement.**
+        Based on all the above information, formulate a concise, in-character statement. It must reflect your identity, serve your goals, and be an appropriate response to the current situation. **Your response must be ONLY the text of your statement.** Pay attention to any quoted text in the last message and address it directly.
         ${langInstruction}
     `;
 
@@ -100,6 +100,67 @@ const generateGeminiStatement = async (
     } catch (error) {
         console.error("Gemini API call failed:", error);
         return `[Gemini AI encountered an error. Please check configuration and API key.]`;
+    }
+};
+
+export const generatePrivateResponse_Gemini = async (
+    responder: Country,
+    chat: Chat,
+    messageHistory: Message[],
+    allCountries: Record<string, Country>,
+    language: 'en' | 'zh'
+): Promise<string> => {
+    if (!process.env.API_KEY) {
+        return `[Gemini AI is offline. API_KEY is not configured.]`;
+    }
+
+    const fullPersona = getFullPersona(responder.id);
+    if (!fullPersona) {
+        return `I am listening.`;
+    }
+    
+    const history = messageHistory.slice(-10).map(m => {
+        const senderName = m.senderId === 'observer' ? 'Observer' : (allCountries[m.senderId]?.name || m.senderId);
+        return `${senderName}: "${m.text}"`;
+    }).join('\n');
+    
+    const langInstruction = language === 'zh' 
+        ? "**CRITICAL INSTRUCTION: Your entire response MUST be in Chinese (中文).**" 
+        : "**CRITICAL INSTRUCTION: Your entire response MUST be in English.**";
+
+    const prompt = `
+        **Roleplay Mandate: You ARE the nation of ${responder.name}.**
+        You are in a private, one-on-one conversation with an "Observer". The Observer is a neutral, powerful entity seeking to understand your nation's true intentions. Be more candid than you would be in public, but still remain in character. Your response must be ONLY the text of your statement.
+
+        ---
+        **1. YOUR CORE IDENTITY:**
+        - **Nation:** ${responder.name} (${responder.id})
+        - **Guiding Philosophy:** "${fullPersona.national_identity.theme}"
+        - **Short-Term Goal:** "${responder.goals.short_term}"
+
+        ---
+        **2. IMMEDIATE SITUATION:**
+        - **Venue:** A secure, private channel.
+        - **Context:** The Observer is asking you questions. Your responses should be insightful.
+        - **Recent Conversation:**
+        ${history}
+
+        ---
+        **YOUR TASK:**
+        Based on your identity and goals, provide a concise, in-character response to the Observer's last message. If they ask about your goals or relationships, give a strategic but not fully transparent answer. If they make a statement, consider its implications. **Your response must be ONLY the text of your statement.**
+        ${langInstruction}
+    `;
+
+    try {
+        const genAI = getAi();
+        const response = await genAI.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+        return response.text.trim();
+    } catch (error) {
+        console.error("Gemini private call failed:", error);
+        return `[Gemini AI encountered an error.]`;
     }
 };
 
@@ -357,62 +418,6 @@ export const generateSecretDiplomacy = (
     return { countryUpdates, systemMessage };
 };
 
-export const generatePublicResponse = async (
-    triggerMessage: Message, 
-    chat: Chat, 
-    intensity: AiIntensity, 
-    countries: Record<string, Country>,
-    messageHistory: Message[],
-    currentTurn: number,
-    useGemini: boolean,
-    language: 'en' | 'zh'
-): Promise<Message[]> => {
-    const instigatorId = triggerMessage.senderId;
-    const effectiveIntensity = triggerMessage.senderId === 'intel_leak' ? 'high' : intensity;
-    const isNeutralEvent = ['news_flash', 'observer', 'intel_leak', 'system', 'summit_announcement'].includes(instigatorId);
-
-    const instigator = isNeutralEvent ? null : countries[instigatorId];
-    if (!instigator && !isNeutralEvent) return [];
-
-    const intensityMap = { simple: 0.1, medium: 0.3, high: 0.6, intense: 0.9 };
-    const tierChanceMultipliers = { 1: 1.0, 2: 0.5, 3: 0.15 };
-
-    const potentialResponders = chat.participants
-        .filter(pId => {
-            const country = countries[pId];
-            if (!country || pId === instigatorId || pId === 'observer') return false;
-            
-            let baseChance = intensityMap[effectiveIntensity] * tierChanceMultipliers[country.tier];
-            if (country.domesticSupport < 40) baseChance *= 1.5;
-            if (country.militaryAlertLevel > 60) baseChance *= 1.5;
-
-            const finalChance = country.persona ? baseChance * 1.2 : baseChance;
-            return Math.random() < Math.min(finalChance, 1.0);
-        })
-        .map(pId => countries[pId]);
-
-    const responses: Message[] = [];
-    for (const [index, country] of potentialResponders.entries()) {
-        let statement = '';
-        if (useGemini && country.persona) {
-            statement = await generateGeminiStatement(country, instigator, chat, messageHistory, countries, language);
-        } else {
-            if (!country.persona) {
-                 statement = `${country.name} acknowledges the ongoing discussion. We are monitoring the situation closely.`;
-            } else {
-                const relationship = instigator ? getRelationship_RulesBased(country, instigator.id) : 'neutral';
-                statement = generateStatement_RulesBased(country, instigator, relationship, effectiveIntensity, messageHistory, countries, currentTurn, chat).statement;
-            }
-        }
-        
-        responses.push({
-            id: Date.now() + index, chatId: chat.id, senderId: country.id,
-            text: statement,
-            timestamp: Date.now(),
-        });
-    }
-    return responses;
-};
 
 export const generatePrivateResponse_RulesBased = (
     triggerMessage: Message, 

@@ -11,8 +11,11 @@ interface ListViewColumnProps {
     onSelectCountry: (countryId: string) => void;
     onCloseChat: (chatId: string) => void;
     onReorderChats: (draggedId: string, targetId: string) => void;
+    pausedChatIds: Set<string>;
+    onToggleChatPause: (chatId: string) => void;
+    onStopChatResponses: (chatId: string) => void;
 }
-export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chats, countries, activeChatId, unreadCounts, onSelectChat, onSelectCountry, onCloseChat, onReorderChats }) => {
+export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chats, countries, activeChatId, unreadCounts, onSelectChat, onSelectCountry, onCloseChat, onReorderChats, pausedChatIds, onToggleChatPause, onStopChatResponses }) => {
     const directory = Object.values(countries);
     const continents = ['All', 'Africa', 'Asia', 'Europe', 'North America', 'Oceania', 'South America'];
     const [continentFilter, setContinentFilter] = useState('All');
@@ -79,6 +82,8 @@ export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chat
                     {filteredChats.map(chat => {
                         const unreadCount = unreadCounts[chat.id] || 0;
                         const isClosable = chat.type === 'private' || chat.type === 'summit';
+                        const isPausable = chat.type === 'group' || chat.type === 'summit';
+                        const isPaused = pausedChatIds.has(chat.id);
                         
                         let avatar = chat.name.split(' ')[0];
                         let name = chat.name.substring(chat.name.indexOf(' ') + 1);
@@ -107,6 +112,12 @@ export const ListViewColumn: React.FC<ListViewColumnProps> = ({ activeView, chat
                                     <span className="list-item-name">{name}</span>
                                     {(chat.type === 'group' || chat.type === 'summit') && <span className="participant-count">{chat.participants.length -1} Members</span>}
                                 </div>
+                                {isPausable && (
+                                    <div className="chat-controls">
+                                        <button className="chat-control-button" title={isPaused ? "Resume Chat" : "Pause Chat"} onClick={(e) => { e.stopPropagation(); onToggleChatPause(chat.id); }}>{isPaused ? '▶️' : '⏸️'}</button>
+                                        <button className="chat-control-button" title="Stop AI Responses" onClick={(e) => { e.stopPropagation(); onStopChatResponses(chat.id); }}>⏹️</button>
+                                    </div>
+                                )}
                                 {unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}
                                 {isClosable && (
                                     <button className="close-chat-button" onClick={(e) => { e.stopPropagation(); onCloseChat(chat.id); }}>×</button>

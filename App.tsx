@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Header } from './src/components/Header';
 import { NavColumn } from './src/components/NavColumn';
@@ -31,6 +32,9 @@ export const App = () => {
         activeChat,
         simulationSpeed,
         isPaused,
+        pausedChatIds,
+        // FIX: Add missing properties for ChatWindow
+        closedNewsItems,
 
         // Actions
         setActiveView,
@@ -53,10 +57,19 @@ export const App = () => {
         setSimulationSpeed,
         togglePause,
         stopAllAiResponses,
+        toggleChatPause,
+        stopAiResponsesForChat,
+        closeNewsItem,
     } = useAppContext();
 
     // Initialize the autonomous AI action simulation loop
     useSimulation();
+    
+    const handleAvatarClick = (countryId: string) => {
+        if (countries[countryId]) {
+            setModalCountry(countries[countryId]);
+        }
+    }
 
     return (
         <>
@@ -67,6 +80,8 @@ export const App = () => {
                 unreadCounts={unreadCounts} onSelectChat={handleSelectChat}
                 onSelectCountry={(countryId) => setModalCountry(countries[countryId])}
                 onCloseChat={handleClosePrivateChat} onReorderChats={handleReorderChats}
+                pausedChatIds={pausedChatIds} onToggleChatPause={toggleChatPause}
+                onStopChatResponses={stopAiResponsesForChat}
             />
             <ChatWindow
                 key={activeChatId} chat={activeChat} countries={countries}
@@ -80,6 +95,10 @@ export const App = () => {
                 isPaused={isPaused}
                 onTogglePause={togglePause}
                 onStopSimulation={stopAllAiResponses}
+                onAvatarClick={handleAvatarClick}
+                // FIX: Pass missing properties to ChatWindow
+                closedNewsItems={closedNewsItems}
+                onCloseNewsItem={closeNewsItem}
             />
             {modalCountry && <CountryProfileModal country={modalCountry} onClose={() => setModalCountry(null)} onStartChat={() => handleStartPrivateChat(modalCountry.id)} t={t} />}
             {isSettingsOpen && <SettingsModal 

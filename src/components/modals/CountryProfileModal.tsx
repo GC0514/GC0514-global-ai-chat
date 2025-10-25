@@ -25,7 +25,7 @@ export const CountryProfileModal: React.FC<CountryProfileModalProps> = ({ countr
             </div>
             <div className="modal-actions">
                 <button className="modal-button secondary" onClick={() => setView('details')}>{t.details}</button>
-                <button className="modal-button primary" onClick={onStartChat}>{t.chat}</button>
+                <button className="modal-button primary" onClick={onStartChat} disabled={country.id === 'observer'}>{t.chat}</button>
             </div>
         </>
     );
@@ -47,7 +47,7 @@ export const CountryProfileModal: React.FC<CountryProfileModalProps> = ({ countr
             </div>
             <div className="modal-actions">
                 <button className="modal-button secondary" onClick={() => setView('main')}>{t.back}</button>
-                <button className="modal-button primary" onClick={onStartChat}>{t.chat}</button>
+                <button className="modal-button primary" onClick={onStartChat} disabled={country.id === 'observer'}>{t.chat}</button>
             </div>
         </>
     );

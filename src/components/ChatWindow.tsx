@@ -4,8 +4,7 @@ import { BREAKING_NEWS_OPTIONS, RANDOM_EVENT_TEMPLATES } from '../../data';
 
 // --- SUB-COMPONENTS for CHAT WINDOW ---
 
-const MessageComponent: React.FC<{ message: Message; countries: Record<string, Country>, onQuote: (message: Message) => void }> = ({ message, countries, onQuote }) => {
-    const [isHovered, setIsHovered] = useState(false);
+const MessageComponent: React.FC<{ message: Message; countries: Record<string, Country>, onQuote: (message: Message) => void, onAvatarClick: (countryId: string) => void }> = ({ message, countries, onQuote, onAvatarClick }) => {
     
     const sender = message.senderId === 'observer' ? { name: 'Observer', avatar: '👤' } : countries[message.senderId];
     
@@ -36,13 +35,15 @@ const MessageComponent: React.FC<{ message: Message; countries: Record<string, C
 
     if (message.senderId === 'intel_leak') {
         return (
-            <div className="message intel-leak" onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
-                 <div className="message-avatar">🤫</div>
-                 <div className="message-content">
-                    <div className="message-sender">Unknown Source</div>
-                    <div className="message-bubble">{message.text}</div>
+            <div className="message intel-leak">
+                 <div className="message-hover-area">
+                    <div className="message-avatar">🤫</div>
+                     <div className="message-content">
+                        <div className="message-sender">Unknown Source</div>
+                        <div className="message-bubble">{message.text}</div>
+                     </div>
                  </div>
-                 {isHovered && <button className="quote-button" title="Quote" onClick={() => onQuote(message)}>↩️</button>}
+                 <button className="quote-button" title="Quote" onClick={() => onQuote(message)}>↩️</button>
             </div>
         )
     }
@@ -50,21 +51,18 @@ const MessageComponent: React.FC<{ message: Message; countries: Record<string, C
     if (!sender) return null;
 
     return (
-        <div 
-            className={`message ${message.senderId === 'observer' ? 'observer' : ''}`}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-        >
-            <div className="message-avatar">{sender.avatar}</div>
-            <div className="message-content">
-                <div className="message-sender">{sender.name}</div>
-                <div className="message-bubble">{renderQuotedText(message.text)}</div>
+        <div className={`message ${message.senderId === 'observer' ? 'observer' : ''}`}>
+             <div className="message-hover-area">
+                <div className="message-avatar" onClick={() => onAvatarClick(message.senderId as string)} title={`View profile: ${sender.name}`}>{sender.avatar}</div>
+                <div className="message-content">
+                    <div className="message-sender">{sender.name}</div>
+                    <div className="message-bubble">{renderQuotedText(message.text)}</div>
+                </div>
+                <button className="quote-button" title="Quote" onClick={() => onQuote(message)}>↩️</button>
             </div>
-            {isHovered && message.senderId !== 'observer' && <button className="quote-button" title="Quote" onClick={() => onQuote(message)}>↩️</button>}
         </div>
     );
 };
-
 
 const SpecialActionsMenu: React.FC<{ onOpenSummitModal: () => void; onOpenIntelModal: () => void; onClose: () => void; }> = ({ onOpenSummitModal, onOpenIntelModal, onClose }) => {
     const menuRef = useRef<HTMLDivElement>(null);
@@ -80,7 +78,7 @@ const SpecialActionsMenu: React.FC<{ onOpenSummitModal: () => void; onOpenIntelM
     }, [onClose]);
 
     return (
-        <div ref={menuRef} style={{ position: 'absolute', bottom: '120px', right: '2rem', background: 'var(--background-panel-opaque)', border: '1px solid var(--border-color)', borderRadius: 'var(--border-radius-main)', zIndex: 100, padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div ref={menuRef} className="popup-panel special-actions-menu">
             <button className="modal-button secondary" onClick={() => { onOpenSummitModal(); onClose(); }}>🏛️ Host Summit</button>
             <button className="modal-button secondary" onClick={() => { onOpenIntelModal(); onClose(); }}>🤫 Leak Intel</button>
         </div>
@@ -98,7 +96,7 @@ const SimulationControlPanel: React.FC<{ isPaused: boolean; onTogglePause: () =>
     }, [onClose]);
 
     return (
-        <div className="sim-control-panel" ref={panelRef}>
+        <div className="popup-panel sim-control-panel" ref={panelRef}>
             <button onClick={onTogglePause}>
                 {isPaused ? '▶️ Resume AI Actions' : '⏸️ Pause AI Actions'}
             </button>
@@ -109,6 +107,23 @@ const SimulationControlPanel: React.FC<{ isPaused: boolean; onTogglePause: () =>
     );
 };
 
+const EmojiPicker: React.FC<{ onSelect: (emoji: string) => void, onClose: () => void }> = ({ onSelect, onClose }) => {
+    const pickerRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) onClose();
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [onClose]);
+
+    const EMOJIS = ['😊', '😂', '👍', '❤️', '🙏', '🤔', '🎉', '🔥', '💡', '🤝', '📈', '📉'];
+    return (
+        <div ref={pickerRef} className="popup-panel emoji-picker">
+            {EMOJIS.map(emoji => <span key={emoji} onClick={() => onSelect(emoji)}>{emoji}</span>)}
+        </div>
+    );
+};
 
 const generateFakeNewsOptions = (countries: Country[], count = 3): NewsItem[] => {
     const options: NewsItem[] = [];
@@ -188,9 +203,12 @@ interface ChatWindowProps {
     isPaused: boolean;
     onTogglePause: () => void;
     onStopSimulation: () => void;
+    onAvatarClick: (countryId: string) => void;
+    closedNewsItems: Set<number>;
+    onCloseNewsItem: (newsId: number) => void;
 }
 
-export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, countries, messages: allMessages, onSendMessage, onPostNewsEvent, onOpenSummitModal, onOpenIntelModal, simulationSpeed, onSimulationSpeedChange, isPaused, onTogglePause, onStopSimulation }) => {
+export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, countries, messages: allMessages, onSendMessage, onPostNewsEvent, onOpenSummitModal, onOpenIntelModal, simulationSpeed, onSimulationSpeedChange, isPaused, onTogglePause, onStopSimulation, onAvatarClick, closedNewsItems, onCloseNewsItem }) => {
     const messageListRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [inputValue, setInputValue] = useState('');
@@ -198,9 +216,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, countries, message
     const [isActionsMenuOpen, setActionsMenuOpen] = useState(false);
     const [isSimControlOpen, setSimControlOpen] = useState(false);
     const [newsPickerState, setNewsPickerState] = useState<{ isOpen: boolean; type: 'real' | 'fake' }>({ isOpen: false, type: 'real' });
-    const [isNewsTickerVisible, setIsNewsTickerVisible] = useState(true);
-
-    const newsFlashes = allMessages.filter(m => m.senderId === 'news_flash').sort((a, b) => b.timestamp - a.timestamp);
+    
+    const newsFlashes = allMessages.filter(m => m.senderId === 'news_flash' && !closedNewsItems.has(m.id)).sort((a, b) => b.timestamp - a.timestamp);
     const currentChatMessages = chat ? allMessages.filter(m => m.chatId === chat.id) : [];
 
     useLayoutEffect(() => {
@@ -218,19 +235,35 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, countries, message
     };
 
     const handleQuote = (messageToQuote: Message) => {
+        if (!inputRef.current) return;
+
         const quoteText = `> "${messageToQuote.text.split('\n').join('\n> ')}"`;
-        setInputValue(prev => (prev ? prev.trim() + '\n\n' : '') + quoteText + '\n');
-        inputRef.current?.focus();
+        const currentText = inputValue;
+        const cursorPosition = inputRef.current.selectionStart;
+
+        const textBeforeCursor = currentText.substring(0, cursorPosition);
+        const textAfterCursor = currentText.substring(cursorPosition);
+        
+        const newText = `${textBeforeCursor}\n\n${quoteText}\n${textAfterCursor}`;
+        
+        setInputValue(newText);
+
+        // This is a trick to re-focus and set the cursor position after React's render cycle
+        setTimeout(() => {
+            if (inputRef.current) {
+                inputRef.current.focus();
+                // Place cursor back where it was, before the new quote
+                inputRef.current.setSelectionRange(cursorPosition, cursorPosition);
+            }
+        }, 0);
     };
 
     if (!chat) return <main className="chat-window placeholder frosted-panel"><div>Select a chat to start messaging</div></main>;
 
-    const EMOJIS = ['😊', '😂', '👍', '❤️', '🙏', '🤔', '🎉', '🔥', '💡', '🤝', '📈', '📉'];
-
     return (
         <main className="chat-window frosted-panel">
             <header className="chat-header">{chat.name}</header>
-            {isNewsTickerVisible && newsFlashes.length > 0 && (
+            {newsFlashes.length > 0 && (
                 <div className="news-ticker-wrapper">
                     <div className="news-ticker-container">
                         {newsFlashes.map(flash => (
@@ -238,45 +271,56 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ chat, countries, message
                                 <span className="icon">{flash.isFabricated ? '💣' : '📰'}</span>
                                 <span className="time">{new Date(flash.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                 <span className="title">{flash.title}</span>
+                                <button className="news-item-close-btn" onClick={() => onCloseNewsItem(flash.id)}>×</button>
                             </div>
                         ))}
                     </div>
-                    <button className="news-ticker-close-button" onClick={() => setIsNewsTickerVisible(false)} title="Close news ticker">×</button>
                 </div>
             )}
             <div className="message-list" ref={messageListRef}>
-                {currentChatMessages.map(msg => <MessageComponent key={msg.id} message={msg} countries={countries} onQuote={handleQuote} />)}
+                {currentChatMessages.map(msg => <MessageComponent key={msg.id} message={msg} countries={countries} onQuote={handleQuote} onAvatarClick={onAvatarClick} />)}
             </div>
             <div className="message-input-area">
-                {isEmojiPickerOpen && <div className="emoji-picker">{EMOJIS.map(emoji => <span key={emoji} onClick={() => setInputValue(p => p + emoji)}>{emoji}</span>)}</div>}
-                {isActionsMenuOpen && <SpecialActionsMenu onOpenSummitModal={onOpenSummitModal} onOpenIntelModal={onOpenIntelModal} onClose={() => setActionsMenuOpen(false)} />}
-                {isSimControlOpen && <SimulationControlPanel isPaused={isPaused} onTogglePause={onTogglePause} onStopSimulation={onStopSimulation} onClose={() => setSimControlOpen(false)} />}
-                {newsPickerState.isOpen && (
-                    <NewsPicker
-                        type={newsPickerState.type}
-                        countries={countries}
-                        onSelect={(newsItem) => {
-                            onPostNewsEvent(newsItem);
-                            setNewsPickerState({ isOpen: false, type: 'real' });
-                        }}
-                        onClose={() => setNewsPickerState({ isOpen: false, type: 'real' })}
-                    />
-                )}
-                
                 <div className="input-toolbar">
-                    <button className="toolbar-button" onClick={() => setEmojiPickerOpen(o => !o)} title="Emoji">😊</button>
-                    <button className="toolbar-button" onClick={() => setActionsMenuOpen(o => !o)} title="Special Actions">⚡️</button>
-                    <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'real' })} title="Post Real News Event">📰</button>
-                    <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'fake' })} title="Post Fabricated News Event">💣</button>
-                    
-                    <div className="simulation-speed-control">
-                        <label htmlFor="speed">速度</label>
-                        <input type="range" id="speed" min="1" max="5" value={simulationSpeed} onChange={e => onSimulationSpeedChange(Number(e.target.value))} />
+                    <div className="toolbar-button-wrapper">
+                         <button className="toolbar-button" onClick={() => setEmojiPickerOpen(o => !o)} title="Emoji">😊</button>
+                         {isEmojiPickerOpen && <EmojiPicker onSelect={(emoji) => setInputValue(p => p + emoji)} onClose={() => setEmojiPickerOpen(false)} />}
                     </div>
-                     <button className="toolbar-button" onClick={() => setSimControlOpen(o => !o)} title="Simulation Controls">⏯️</button>
+                     <div className="toolbar-button-wrapper">
+                        <button className="toolbar-button" onClick={() => setActionsMenuOpen(o => !o)} title="Special Actions">⚡️</button>
+                         {isActionsMenuOpen && <SpecialActionsMenu onOpenSummitModal={onOpenSummitModal} onOpenIntelModal={onOpenIntelModal} onClose={() => setActionsMenuOpen(false)} />}
+                    </div>
+                     <div className="toolbar-button-wrapper">
+                        <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'real' })} title="Post Real News Event">📰</button>
+                    </div>
+                     <div className="toolbar-button-wrapper">
+                        <button className="toolbar-button" onClick={() => setNewsPickerState({ isOpen: true, type: 'fake' })} title="Post Fabricated News Event">💣</button>
+                         {newsPickerState.isOpen && (
+                            <NewsPicker
+                                type={newsPickerState.type}
+                                countries={countries}
+                                onSelect={(newsItem) => {
+                                    onPostNewsEvent(newsItem);
+                                    setNewsPickerState({ isOpen: false, type: 'real' });
+                                }}
+                                onClose={() => setNewsPickerState({ isOpen: false, type: 'real' })}
+                            />
+                        )}
+                    </div>
+                    
+                    <div className="toolbar-button-wrapper">
+                         <div className="simulation-controls">
+                            <div className="simulation-speed-control">
+                                <label htmlFor="speed">速度</label>
+                                <input type="range" id="speed" min="1" max="5" value={simulationSpeed} onChange={e => onSimulationSpeedChange(Number(e.target.value))} />
+                            </div>
+                            <button className="toolbar-button" onClick={() => setSimControlOpen(o => !o)} title="Simulation Controls">⏯️</button>
+                        </div>
+                        {isSimControlOpen && <SimulationControlPanel isPaused={isPaused} onTogglePause={onTogglePause} onStopSimulation={onStopSimulation} onClose={() => setSimControlOpen(false)} />}
+                    </div>
                 </div>
                 <form className="message-input-form" onSubmit={handleSubmit}>
-                    <textarea ref={inputRef} value={inputValue} onChange={e => setInputValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e as any); } }} className="message-input" placeholder="Type your message as an Observer..." rows={inputValue.split('\n').length} />
+                    <textarea ref={inputRef} value={inputValue} onChange={e => setInputValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e as any); } }} className="message-input" placeholder="Type your message as an Observer..." rows={Math.max(1, inputValue.split('\n').length)} />
                     <button className="send-button" type="submit">Send</button>
                 </form>
             </div>
