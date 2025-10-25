@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useRef, ReactNode } from 'react';
 import { Chat, Message, AiIntensity, Country, NewsItem, Persona } from '../types';
 import { RAW_COUNTRIES, EVENT_KNOWLEDGE_BASE, BREAKING_NEWS_OPTIONS, TRANSLATIONS, G7_MEMBERS, BRICS_MEMBERS, SCO_MEMBERS, NATO_MEMBERS, EU_MEMBERS, AU_MEMBERS, ARAB_LEAGUE_MEMBERS, GCC_MEMBERS } from '../../data';
-import { generatePublicResponse, generatePrivateResponse, evaluateAndGetRelationshipUpdates, generateInitialGoals, generateSecretDiplomacy, generateAutonomousAction } from '../services/aiService';
+import { generatePublicResponse, generatePrivateResponse_RulesBased, evaluateAndGetRelationshipUpdates, generateInitialGoals_RulesBased, generateSecretDiplomacy, generateAutonomousAction_RulesBased } from '../services/aiService';
 import { playNotificationSound } from '../utils/audio';
 
 // --- INITIAL STATE ---
@@ -27,7 +27,7 @@ const initializeAppState = () => {
         }
     }
 
-    const countriesWithGoals = generateInitialGoals(processedCountries, EVENT_KNOWLEDGE_BASE);
+    const countriesWithGoals = generateInitialGoals_RulesBased(processedCountries, EVENT_KNOWLEDGE_BASE);
 
     for (const idA of countryIds) {
         const countryA = countriesWithGoals[idA];
@@ -86,6 +86,7 @@ interface AppContextValue {
     theme: 'dark' | 'light';
     language: 'en' | 'zh';
     aiIntensity: AiIntensity;
+    useGeminiAI: boolean;
     unreadCounts: Record<string, number>;
     observerMessageCount: number;
     t: Record<string, any>;
@@ -102,6 +103,7 @@ interface AppContextValue {
     setTheme: React.Dispatch<React.SetStateAction<'dark' | 'light'>>;
     setLanguage: React.Dispatch<React.SetStateAction<'en' | 'zh'>>;
     setAiIntensity: React.Dispatch<React.SetStateAction<AiIntensity>>;
+    setUseGeminiAI: React.Dispatch<React.SetStateAction<boolean>>;
     setUnreadCounts: React.Dispatch<React.SetStateAction<Record<string, number>>>;
     setObserverMessageCount: React.Dispatch<React.SetStateAction<number>>;
     addMessage: (msg: Message) => void;
@@ -134,6 +136,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const [theme, setTheme] = useState<'dark' | 'light'>('dark');
     const [language, setLanguage] = useState<'en' | 'zh'>('zh');
     const [aiIntensity, setAiIntensity] = useState<AiIntensity>('medium');
+    const [useGeminiAI, setUseGeminiAI] = useState<boolean>(false);
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
     const [observerMessageCount, setObserverMessageCount] = useState(0);
 
@@ -259,7 +262,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
     };
     
-    const handleSendMessage = (text: string) => {
+    const handleSendMessage = async (text: string) => {
         if (!activeChat) return;
         turnCounter.current++;
         const newMessage: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: 'observer', text, timestamp: Date.now() };
@@ -268,14 +271,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         
         const messageHistory = [...messages, newMessage];
         if (activeChat.type === 'private') {
-            addMessage(generatePrivateResponse(newMessage, activeChat, countries, messageHistory));
+            addMessage(generatePrivateResponse_RulesBased(newMessage, activeChat, countries, messageHistory));
         } else if (activeChat.type === 'group' || activeChat.type === 'summit') {
-            addMessagesWithDelay(generatePublicResponse(newMessage, activeChat, aiIntensity, countries, messageHistory, turnCounter.current));
+            const responses = await generatePublicResponse(newMessage, activeChat, aiIntensity, countries, messageHistory, turnCounter.current, useGeminiAI);
+            addMessagesWithDelay(responses);
         }
     };
 
     const handleAutonomousAiAction = () => {
-        setTimeout(() => {
+        setTimeout(async () => {
             const actingCountry = (() => {
                 const tiers: Record<number, Country[]> = { 1: [], 2: [], 3: [] };
                 Object.values(countries).forEach((c: Country) => c.persona && tiers[c.tier].push(c));
@@ -286,14 +290,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 return Object.values(countries).find((c: Country) => c.persona)!;
             })();
 
-            const action = generateAutonomousAction(actingCountry, countries, chats, turnCounter.current);
+            const action = generateAutonomousAction_RulesBased(actingCountry, countries, chats, turnCounter.current);
             if (!action) return;
 
             if (action.type === 'public_message') {
                 const message: Message = { id: messageIdCounter.current++, chatId: action.payload.chatId, senderId: actingCountry.id, text: action.payload.text, timestamp: Date.now() };
                 addMessage(message);
                 const chatContext = chats.find(c => c.id === action.payload.chatId)!;
-                addMessagesWithDelay(generatePublicResponse(message, chatContext, aiIntensity, countries, [...messages, message], turnCounter.current));
+                const responses = await generatePublicResponse(message, chatContext, aiIntensity, countries, [...messages, message], turnCounter.current, useGeminiAI);
+                addMessagesWithDelay(responses);
             } else if (action.type === 'start_private_chat') {
                 const { participants, initialMessage } = action.payload;
                 const sortedIds = participants.sort();
@@ -312,13 +317,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 const firstMessage: Message = { id: messageIdCounter.current++, chatId: chatId, senderId: actingCountry.id, text: initialMessage, timestamp: Date.now() + 100 };
                 addMessage(firstMessage);
                 
-                const response = generatePrivateResponse(firstMessage, newChat, countries, [firstMessage]);
+                const response = generatePrivateResponse_RulesBased(firstMessage, newChat, countries, [firstMessage]);
                 setTimeout(() => addMessage(response), 1000);
             }
         }, 2000 + Math.random() * 2000);
     };
 
-    const handlePostNewsEvent = (newsItem: NewsItem) => {
+    const handlePostNewsEvent = async (newsItem: NewsItem) => {
         const globalChat = chats.find(c => c.id === 'global');
         if (!globalChat) return;
         turnCounter.current++;
@@ -327,10 +332,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         
         const messageHistory = [...messages, newsMessage];
         const intensity = newsItem.isFabricated ? 'high' : aiIntensity;
-        addMessagesWithDelay(generatePublicResponse(newsMessage, globalChat, intensity, countries, messageHistory, turnCounter.current));
+        const responses = await generatePublicResponse(newsMessage, globalChat, intensity, countries, messageHistory, turnCounter.current, useGeminiAI);
+        addMessagesWithDelay(responses);
     };
 
-    const handleHostSummit = (theme: string, participants: string[]) => {
+    const handleHostSummit = async (theme: string, participants: string[]) => {
         const summitId = `summit_${Date.now()}`;
         const newChat: Chat = { id: summitId, name: `🏛️ ${theme}`, type: 'summit', participants: ['observer', ...participants] };
         setChats(prev => [newChat, ...prev]);
@@ -349,17 +355,19 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setSummitModalOpen(false);
         handleSelectChat(summitId);
         
-        addMessagesWithDelay(generatePublicResponse(announcement, newChat, 'high', countries, [announcement], turnCounter.current));
+        const responses = await generatePublicResponse(announcement, newChat, 'high', countries, [announcement], turnCounter.current, useGeminiAI);
+        addMessagesWithDelay(responses);
     };
 
-    const handleLeakIntel = (intel: string) => {
+    const handleLeakIntel = async (intel: string) => {
         if (!activeChat) return;
         turnCounter.current++;
         const intelMessage: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: 'intel_leak', text: intel, timestamp: Date.now() };
         addMessage(intelMessage);
         setIntelModalOpen(false);
         
-        addMessagesWithDelay(generatePublicResponse(intelMessage, activeChat, aiIntensity, countries, [...messages, intelMessage], turnCounter.current));
+        const responses = await generatePublicResponse(intelMessage, activeChat, aiIntensity, countries, [...messages, intelMessage], turnCounter.current, useGeminiAI);
+        addMessagesWithDelay(responses);
     };
 
     const handleStartPrivateChat = (countryId: string) => {
@@ -399,7 +407,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const value = {
         countries, setCountries, chats, setChats, activeChatId, setActiveChatId, messages, setMessages, modalCountry, setModalCountry,
         activeView, setActiveView, isSettingsOpen, setSettingsOpen, isSummitModalOpen, setSummitModalOpen, isIntelModalOpen, setIntelModalOpen,
-        theme, setTheme, language, setLanguage, aiIntensity, setAiIntensity, unreadCounts, setUnreadCounts, observerMessageCount, setObserverMessageCount,
+        theme, setTheme, language, setLanguage, aiIntensity, setAiIntensity, useGeminiAI, setUseGeminiAI, unreadCounts, setUnreadCounts, observerMessageCount, setObserverMessageCount,
         t, activeChat, addMessage, addMessagesWithDelay, handleSelectChat, handleSendMessage, handleAutonomousAiAction,
         handlePostNewsEvent, handleHostSummit, handleLeakIntel, handleStartPrivateChat, handleClosePrivateChat, handleReorderChats
     };

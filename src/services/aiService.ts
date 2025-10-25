@@ -1,6 +1,85 @@
+import { GoogleGenAI } from "@google/genai";
 import { Message, Chat, AiIntensity, Country, Persona, NewsItem } from '../types';
 
-const getRelationship = (responder: Country, instigatorId: string): 'ally' | 'rival' | 'neutral' => {
+// --- Gemini AI Engine (New) ---
+let ai: GoogleGenAI;
+
+const getAi = () => {
+    if (!ai) {
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+    }
+    return ai;
+};
+
+const generateGeminiStatement = async (
+    responder: Country,
+    instigator: Country | null,
+    chat: Chat,
+    messageHistory: Message[],
+    allCountries: Record<string, Country>
+): Promise<string> => {
+    if (!process.env.API_KEY) {
+        return `[Gemini AI is offline. API_KEY is not configured.]`;
+    }
+
+    const persona = responder.persona as Persona;
+    const history = messageHistory.slice(-10).map(m => {
+        const senderName = m.senderId === 'observer' ? 'Observer' : (allCountries[m.senderId]?.name || m.senderId);
+        return `${senderName}: "${m.text}"`;
+    }).join('\n');
+
+    const participants = chat.participants
+        .filter(p => p !== 'observer' && allCountries[p])
+        .map(p => `${allCountries[p].name} (${p})`)
+        .join(', ');
+
+    const prompt = `
+        You are an AI roleplaying as a nation in a global simulation.
+
+        **Your Identity:**
+        - Nation: ${responder.name} (${responder.id})
+        - Persona Theme: "${persona.national_identity.theme}"
+        - Persona Narrative: ${persona.national_identity.narrative}
+        - Communication Tone: ${persona.communication_style.tone}
+        - Core Rhetoric to use: "${persona.communication_style.rhetoric.join('", "')}"
+
+        **Current National Status:**
+        - Economic Stability: ${responder.economicStability}/100
+        - Domestic Support: ${responder.domesticSupport}/100
+        - Military Alert Level: ${responder.militaryAlertLevel}/100
+        - Short-Term Goal: "${responder.goals.short_term}"
+        - Long-Term Goal: "${responder.goals.long_term}"
+
+        **Situation:**
+        - You are in a chat room named "${chat.name}" with the following participants: ${participants}.
+        - The most recent message was from: ${instigator ? instigator.name : 'A System Event'}.
+        - Recent Chat History (last 10 messages):
+        ${history}
+
+        **Your Task:**
+        Based on your identity, status, goals, and the recent conversation, generate a concise and in-character statement.
+        - If domestic support is low (< 40), be more nationalistic and assertive.
+        - If economic stability is low (< 40), be cautious and prioritize economic cooperation.
+        - Adhere strictly to your persona. Your response must be only the statement itself, without any introductory or concluding remarks.
+    `;
+
+    try {
+        const genAI = getAi();
+        const response = await genAI.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+        return response.text.trim();
+    } catch (error) {
+        console.error("Gemini API call failed:", error);
+        return `[Gemini AI encountered an error. Please check configuration and API key.]`;
+    }
+};
+
+
+// --- Rules-Based Engine (Original, Renamed) ---
+
+const getRelationship_RulesBased = (responder: Country, instigatorId: string): 'ally' | 'rival' | 'neutral' => {
     if (!instigatorId || !responder.relationships[instigatorId]) {
         return 'neutral';
     }
@@ -12,7 +91,7 @@ const getRelationship = (responder: Country, instigatorId: string): 'ally' | 'ri
     return 'neutral';
 };
 
-export const generateInitialGoals = (
+export const generateInitialGoals_RulesBased = (
     allCountries: Record<string, Country>,
     knowledgeBase: NewsItem[]
 ): Record<string, Country> => {
@@ -47,7 +126,7 @@ export const generateInitialGoals = (
 };
 
 
-const generateStatement = (
+const generateStatement_RulesBased = (
     responder: Country,
     instigator: Country | null, // Can be null for neutral events
     relationship: 'ally' | 'rival' | 'neutral',
@@ -147,7 +226,7 @@ export const evaluateAndGetRelationshipUpdates = (
         if (participantId === senderId || participantId === 'observer' || !allCountries[participantId]?.persona) continue;
 
         const participant = allCountries[participantId];
-        const relationshipToSender = getRelationship(participant, senderId);
+        const relationshipToSender = getRelationship_RulesBased(participant, senderId);
         let change = 0;
 
         // Simple sentiment check (could be much more complex)
@@ -190,13 +269,13 @@ export const generateSecretDiplomacy = (
         const sender = allCountries[senderId];
         const rivalsInChat = participants
             .map(id => allCountries[id])
-            .filter(c => c && c.id !== sender.id && getRelationship(c, sender.id) === 'rival' && c.persona);
+            .filter(c => c && c.id !== sender.id && getRelationship_RulesBased(c, sender.id) === 'rival' && c.persona);
         
         if (rivalsInChat.length > 0) {
             const mainRival = rivalsInChat[0];
             const partners = participants
                 .map(id => allCountries[id])
-                .filter(c => c && c.id !== mainRival.id && getRelationship(c, mainRival.id) === 'ally' && c.persona);
+                .filter(c => c && c.id !== mainRival.id && getRelationship_RulesBased(c, mainRival.id) === 'ally' && c.persona);
             if(partners.length > 0) {
                 involvedParties = [mainRival, partners[0]];
                 motivation = `coordinate a response to ${sender.name}'s recent statement.`;
@@ -215,7 +294,7 @@ export const generateSecretDiplomacy = (
     if (involvedParties.length < 2) return { countryUpdates: {}, systemMessage: null };
 
     const [countryA, countryB] = involvedParties;
-    const relationship = getRelationship(countryA, countryB.id);
+    const relationship = getRelationship_RulesBased(countryA, countryB.id);
     let stance = '';
 
     if(relationship === 'ally'){
@@ -251,14 +330,15 @@ export const generateSecretDiplomacy = (
     return { countryUpdates, systemMessage };
 };
 
-export const generatePublicResponse = (
+export const generatePublicResponse = async (
     triggerMessage: Message, 
     chat: Chat, 
     intensity: AiIntensity, 
     countries: Record<string, Country>,
     messageHistory: Message[],
-    currentTurn: number
-): Message[] => {
+    currentTurn: number,
+    useGemini: boolean,
+): Promise<Message[]> => {
     const instigatorId = triggerMessage.senderId;
     const effectiveIntensity = triggerMessage.senderId === 'intel_leak' ? 'intense' : intensity;
     const isNeutralEvent = ['news_flash', 'observer', 'intel_leak', 'system', 'summit_announcement'].includes(instigatorId);
@@ -275,36 +355,38 @@ export const generatePublicResponse = (
             if (!country || pId === instigatorId || pId === 'observer') return false;
             
             let baseChance = intensityMap[effectiveIntensity] * tierChanceMultipliers[country.tier];
-            // Countries with low domestic support are more likely to talk to distract
             if (country.domesticSupport < 40) baseChance *= 1.5;
-            if (country.militaryAlertLevel > 60) baseChance *= 1.5; // High alert countries are jumpy
+            if (country.militaryAlertLevel > 60) baseChance *= 1.5;
 
             const finalChance = country.persona ? baseChance * 1.2 : baseChance;
             return Math.random() < Math.min(finalChance, 1.0);
         })
         .map(pId => countries[pId]);
 
-    return potentialResponders.map((country, index) => {
-        if (!country.persona) {
-             return {
-                id: Date.now() + index, chatId: chat.id, senderId: country.id,
-                text: `${country.name} acknowledges the ongoing discussion. We are monitoring the situation closely.`,
-                timestamp: Date.now() + (index + 1) * 1500,
-            };
+    const responses: Message[] = [];
+    for (const [index, country] of potentialResponders.entries()) {
+        let statement = '';
+        if (useGemini && country.persona) {
+            statement = await generateGeminiStatement(country, instigator, chat, messageHistory, countries);
+        } else {
+            if (!country.persona) {
+                 statement = `${country.name} acknowledges the ongoing discussion. We are monitoring the situation closely.`;
+            } else {
+                const relationship = instigator ? getRelationship_RulesBased(country, instigator.id) : 'neutral';
+                statement = generateStatement_RulesBased(country, instigator, relationship, effectiveIntensity, messageHistory, countries, currentTurn, chat).statement;
+            }
         }
-
-        const relationship = instigator ? getRelationship(country, instigator.id) : 'neutral';
-        const { assessment, statement } = generateStatement(country, instigator, relationship, effectiveIntensity, messageHistory, countries, currentTurn, chat);
-       
-        return {
+        
+        responses.push({
             id: Date.now() + index, chatId: chat.id, senderId: country.id,
             text: statement,
-            timestamp: Date.now() + (index + 1) * 1500,
-        };
-    });
+            timestamp: Date.now(),
+        });
+    }
+    return responses;
 };
 
-export const generatePrivateResponse = (
+export const generatePrivateResponse_RulesBased = (
     triggerMessage: Message, 
     chat: Chat,
     countries: Record<string, Country>,
@@ -322,7 +404,7 @@ export const generatePrivateResponse = (
     } else if (userText.includes('relationship with') || userText.includes('opinion of')) {
         const mentionedCountry = Object.values(countries).find(c => userText.includes(c.name.toLowerCase()));
         if (mentionedCountry) {
-            const relationship = getRelationship(respondingCountry, mentionedCountry.id);
+            const relationship = getRelationship_RulesBased(respondingCountry, mentionedCountry.id);
             responseText = `Between us, our relationship with ${mentionedCountry.name} is complex. We officially consider them a ${relationship}. Our interactions are guided by that standing.`;
         } else {
             responseText = `Who are you referring to specifically? Our foreign policy is a complex web of relationships.`;
@@ -344,7 +426,7 @@ type AutonomousAction =
     | { type: 'public_message'; payload: { chatId: string; text: string } }
     | { type: 'start_private_chat'; payload: { participants: [string, string]; initialMessage: string } };
 
-export const generateAutonomousAction = (
+export const generateAutonomousAction_RulesBased = (
     actingCountry: Country,
     allCountries: Record<string, Country>,
     allChats: Chat[],
@@ -381,8 +463,8 @@ export const generateAutonomousAction = (
         const potentialPartners = Object.values(allCountries).filter(c => {
             if (c.id === actingCountry.id || !c.persona) return false;
             // Don't talk to someone if tensions are high
-            if (actingCountry.militaryAlertLevel > 60 && getRelationship(actingCountry, c.id) !== 'ally') return false;
-            const relationship = getRelationship(actingCountry, c.id);
+            if (actingCountry.militaryAlertLevel > 60 && getRelationship_RulesBased(actingCountry, c.id) !== 'ally') return false;
+            const relationship = getRelationship_RulesBased(actingCountry, c.id);
             return relationship === 'ally' || (relationship === 'neutral' && actingCountry.economicStability < 50);
         });
 

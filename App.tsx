@@ -25,6 +25,7 @@ export const App = () => {
         theme,
         language,
         aiIntensity,
+        useGeminiAI,
         unreadCounts,
         t,
         activeChat,
@@ -46,6 +47,7 @@ export const App = () => {
         setTheme,
         setLanguage,
         setAiIntensity,
+        setUseGeminiAI,
     } = useAppContext();
 
     // Initialize the autonomous AI action simulation loop
@@ -70,7 +72,14 @@ export const App = () => {
                 onOpenIntelModal={() => setIntelModalOpen(true)}
             />
             {modalCountry && <CountryProfileModal country={modalCountry} onClose={() => setModalCountry(null)} onStartChat={() => handleStartPrivateChat(modalCountry.id)} t={t} />}
-            {isSettingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} theme={theme} onThemeChange={setTheme} language={language} onLanguageChange={setLanguage} intensity={aiIntensity} onIntensityChange={setAiIntensity} t={t} />}
+            {isSettingsOpen && <SettingsModal 
+                onClose={() => setSettingsOpen(false)} 
+                theme={theme} onThemeChange={setTheme} 
+                language={language} onLanguageChange={setLanguage} 
+                intensity={aiIntensity} onIntensityChange={setAiIntensity} 
+                useGeminiAI={useGeminiAI} onUseGeminiAIChange={setUseGeminiAI}
+                t={t} 
+            />}
             {isSummitModalOpen && <HostSummitModal countries={countries} onClose={() => setSummitModalOpen(false)} onHost={handleHostSummit} />}
             {isIntelModalOpen && <LeakIntelModal onClose={() => setIntelModalOpen(false)} onLeak={handleLeakIntel} />}
         </>
