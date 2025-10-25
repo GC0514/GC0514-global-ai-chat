@@ -29,6 +29,8 @@ export const App = () => {
         unreadCounts,
         t,
         activeChat,
+        simulationSpeed,
+        isPaused,
 
         // Actions
         setActiveView,
@@ -48,6 +50,9 @@ export const App = () => {
         setLanguage,
         setAiIntensity,
         setUseGeminiAI,
+        setSimulationSpeed,
+        togglePause,
+        stopAllAiResponses,
     } = useAppContext();
 
     // Initialize the autonomous AI action simulation loop
@@ -70,6 +75,11 @@ export const App = () => {
                 onPostNewsEvent={handlePostNewsEvent}
                 onOpenSummitModal={() => setSummitModalOpen(true)}
                 onOpenIntelModal={() => setIntelModalOpen(true)}
+                simulationSpeed={simulationSpeed}
+                onSimulationSpeedChange={setSimulationSpeed}
+                isPaused={isPaused}
+                onTogglePause={togglePause}
+                onStopSimulation={stopAllAiResponses}
             />
             {modalCountry && <CountryProfileModal country={modalCountry} onClose={() => setModalCountry(null)} onStartChat={() => handleStartPrivateChat(modalCountry.id)} t={t} />}
             {isSettingsOpen && <SettingsModal 

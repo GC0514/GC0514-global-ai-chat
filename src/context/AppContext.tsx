@@ -91,6 +91,9 @@ interface AppContextValue {
     observerMessageCount: number;
     t: Record<string, any>;
     activeChat: Chat | undefined;
+    simulationSpeed: number;
+    isPaused: boolean;
+
     setCountries: React.Dispatch<React.SetStateAction<Record<string, Country>>>;
     setChats: React.Dispatch<React.SetStateAction<Chat[]>>;
     setActiveChatId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -106,6 +109,10 @@ interface AppContextValue {
     setUseGeminiAI: React.Dispatch<React.SetStateAction<boolean>>;
     setUnreadCounts: React.Dispatch<React.SetStateAction<Record<string, number>>>;
     setObserverMessageCount: React.Dispatch<React.SetStateAction<number>>;
+    setSimulationSpeed: React.Dispatch<React.SetStateAction<number>>;
+    togglePause: () => void;
+    stopAllAiResponses: () => void;
+
     addMessage: (msg: Message) => void;
     addMessagesWithDelay: (msgs: Message[]) => void;
     handleSelectChat: (chatId: string) => void;
@@ -133,22 +140,32 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const [isSettingsOpen, setSettingsOpen] = useState(false);
     const [isSummitModalOpen, setSummitModalOpen] = useState(false);
     const [isIntelModalOpen, setIntelModalOpen] = useState(false);
-    const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+    const [theme, setTheme] = useState<'dark' | 'light'>('light');
     const [language, setLanguage] = useState<'en' | 'zh'>('zh');
     const [aiIntensity, setAiIntensity] = useState<AiIntensity>('medium');
-    const [useGeminiAI, setUseGeminiAI] = useState<boolean>(false);
+    const [useGeminiAI, setUseGeminiAI] = useState<boolean>(true);
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
     const [observerMessageCount, setObserverMessageCount] = useState(0);
+    const [simulationSpeed, setSimulationSpeed] = useState(2); // 1 (slow) to 5 (fast)
+    const [isPaused, setIsPaused] = useState(false);
 
     const messageIdCounter = useRef(initialState.messages.length + 1);
     const turnCounter = useRef(1);
     const activeChatIdRef = useRef(activeChatId);
+    const pendingTimeoutsRef = useRef<number[]>([]);
 
     const t = TRANSLATIONS[language];
     const activeChat = chats.find(c => c.id === activeChatId);
 
     useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
     useEffect(() => { document.body.className = `theme-${theme}`; }, [theme]);
+    
+    // Cleanup timeouts on unmount
+    useEffect(() => {
+        return () => {
+            pendingTimeoutsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+        };
+    }, []);
 
     const addMessage = (msg: Message) => {
         const chatContext = chats.find(c => c.id === msg.chatId);
@@ -178,14 +195,36 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
     
     const addMessagesWithDelay = (msgs: Message[]) => {
+        stopAllAiResponses(); // Clear any existing queue before starting a new one
         let cumulativeDelay = 0;
         msgs.forEach((res) => {
-            const delay = 2000 + Math.random() * 3000; // Staggered delay between 2 and 5 seconds
+            const baseDelay = (6 - simulationSpeed) * 4000; 
+            const randomJitter = baseDelay * 0.5;
+            const delay = baseDelay - randomJitter / 2 + Math.random() * randomJitter;
+            
             cumulativeDelay += delay;
-            setTimeout(() => {
+
+            const timeoutId = window.setTimeout(() => {
                 addMessage(res);
-                playNotificationSound(); // Play sound as each message arrives
+                playNotificationSound();
+                pendingTimeoutsRef.current = pendingTimeoutsRef.current.filter(id => id !== timeoutId);
             }, cumulativeDelay);
+            pendingTimeoutsRef.current.push(timeoutId);
+        });
+    };
+
+    const stopAllAiResponses = () => {
+        pendingTimeoutsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+        pendingTimeoutsRef.current = [];
+    };
+    
+    const togglePause = () => {
+        setIsPaused(prev => {
+            const newPausedState = !prev;
+            if (newPausedState) { // When pausing, clear all pending AI responses.
+                stopAllAiResponses();
+            }
+            return newPausedState;
         });
     };
 
@@ -266,7 +305,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
     
     const handleSendMessage = async (text: string) => {
-        if (!activeChat) return;
+        if (!activeChat || isPaused) return;
         turnCounter.current++;
         const newMessage: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: 'observer', text, timestamp: Date.now() };
         addMessage(newMessage);
@@ -282,6 +321,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const handleAutonomousAiAction = async () => {
+        if (isPaused) return;
         turnCounter.current++;
         const actingCountry = (() => {
             const tiers: Record<number, Country[]> = { 1: [], 2: [], 3: [] };
@@ -330,6 +370,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
 
     const handlePostNewsEvent = async (newsItem: NewsItem) => {
+        if (isPaused) return;
         const globalChat = chats.find(c => c.id === 'global');
         if (!globalChat) return;
         turnCounter.current++;
@@ -343,6 +384,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const handleHostSummit = async (theme: string, participants: string[]) => {
+        if (isPaused) return;
         const summitId = `summit_${Date.now()}`;
         const newChat: Chat = { id: summitId, name: `🏛️ ${theme}`, type: 'summit', participants: ['observer', ...participants] };
         setChats(prev => [newChat, ...prev]);
@@ -366,7 +408,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const handleLeakIntel = async (intel: string) => {
-        if (!activeChat) return;
+        if (!activeChat || isPaused) return;
         turnCounter.current++;
         const intelMessage: Message = { id: messageIdCounter.current++, chatId: activeChat.id, senderId: 'intel_leak', text: intel, timestamp: Date.now() };
         addMessage(intelMessage);
@@ -414,7 +456,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         countries, setCountries, chats, setChats, activeChatId, setActiveChatId, messages, setMessages, modalCountry, setModalCountry,
         activeView, setActiveView, isSettingsOpen, setSettingsOpen, isSummitModalOpen, setSummitModalOpen, isIntelModalOpen, setIntelModalOpen,
         theme, setTheme, language, setLanguage, aiIntensity, setAiIntensity, useGeminiAI, setUseGeminiAI, unreadCounts, setUnreadCounts, observerMessageCount, setObserverMessageCount,
-        t, activeChat, addMessage, addMessagesWithDelay, handleSelectChat, handleSendMessage, handleAutonomousAiAction,
+        t, activeChat, simulationSpeed, setSimulationSpeed, isPaused, togglePause, stopAllAiResponses,
+        addMessage, addMessagesWithDelay, handleSelectChat, handleSendMessage, handleAutonomousAiAction,
         handlePostNewsEvent, handleHostSummit, handleLeakIntel, handleStartPrivateChat, handleClosePrivateChat, handleReorderChats
     };
 

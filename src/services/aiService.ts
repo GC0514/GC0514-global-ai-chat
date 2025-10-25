@@ -80,7 +80,7 @@ const generateGeminiStatement = async (
         **3. IMMEDIATE SITUATION:**
         - **Venue:** You are in the "${chat.name}" chat room.
         - **Participants:** ${participants}.
-        - **Context:** The last message was from **${instigator ? instigator.name : 'A System Event'}**.
+        - **Context:** The last message was from **${instigator ? instigator.name : 'A System Event'}**. If the message contains quoted text (e.g., > "text"), your response should directly address it.
         - **Recent Conversation:**
         ${history}
 
@@ -368,7 +368,7 @@ export const generatePublicResponse = async (
     language: 'en' | 'zh'
 ): Promise<Message[]> => {
     const instigatorId = triggerMessage.senderId;
-    const effectiveIntensity = triggerMessage.senderId === 'intel_leak' ? 'intense' : intensity;
+    const effectiveIntensity = triggerMessage.senderId === 'intel_leak' ? 'high' : intensity;
     const isNeutralEvent = ['news_flash', 'observer', 'intel_leak', 'system', 'summit_announcement'].includes(instigatorId);
 
     const instigator = isNeutralEvent ? null : countries[instigatorId];
