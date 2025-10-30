@@ -12,7 +12,8 @@ export const ProposePactModal: React.FC<ProposePactModalProps> = ({ sourceCountr
     const [targetId, setTargetId] = useState('');
     const [pactType, setPactType] = useState<Pact['type']>('non_aggression');
     
-    const availableTargets = Object.values(countries).filter(c => c.id !== sourceCountry.id);
+    // Fix: Explicitly type 'c' as Country to resolve properties on type 'unknown'.
+    const availableTargets = Object.values(countries).filter((c: Country) => c.id !== sourceCountry.id);
 
     const handleSubmit = () => {
         if (targetId) {
@@ -44,7 +45,7 @@ export const ProposePactModal: React.FC<ProposePactModalProps> = ({ sourceCountr
                         style={{ width: '100%', fontSize: '1rem' }}
                     >
                         <option value="" disabled>Choose a country...</option>
-                        {availableTargets.map(c => (
+                        {availableTargets.map((c: Country) => (
                             <option key={c.id} value={c.id}>{c.avatar} {c.name}</option>
                         ))}
                     </select>
